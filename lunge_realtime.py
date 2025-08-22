@@ -39,14 +39,13 @@ class UniversalTTS:
         
         # 피드백 메시지 매핑
         self.feedback_messages = {
-            "허리 말림": "허리를 펴세요. 엉덩이가 안으로 말리지 않도록 주의하세요.",
-            "무릎 모임": "무릎이 발끝 방향을 향하도록 하세요. 안쪽으로 무너지지 마세요.",
-            "굿모닝 스쿼트": "상체를 일으키세요. 엉덩이만 먼저 올라가지 않도록 하세요.",
-            "상체 숙임": "가슴을 펴고 상체를 일으키세요.",
-            "뒤꿈치 들림": "뒤꿈치를 바닥에 붙이세요. 무게중심이 앞으로 쏠리지 않도록 하세요.",
-            "골반 치우침": "골반을 중앙에 유지하세요. 좌우로 치우치지 마세요.",
-            "깊이 부족": "더 깊게 앉으세요. 허벅지가 지면과 평행이 될 때까지.",
-            "발목 가동성 부족": "발목을 더 굽혀보세요. 가동성을 높이세요."
+            "측면 불안정성": "몸통을 똑바로 유지하세요. 좌우로 기울어지지 마세요.",
+            "무릎 모임": "앞 무릎이 발끝 방향을 향하도록 하세요. 안쪽으로 무너지지 마세요.",
+            "과도한 무릎 전진": "앞 무릎이 발끝을 넘어가지 않도록 주의하세요.",
+            "상체 숙여짐": "가슴을 펴고 상체를 일으키세요.",
+            "부족한 깊이": "더 깊게 내려가세요. 근육을 충분히 활성화하세요.",
+            "좁은 스탠스": "발을 어깨너비만큼 벌리세요. 안정적인 자세를 유지하세요.",
+            "앞발목 가동성 부족": "앞발목을 더 굽혀보세요. 가동성을 높이세요."
         }
     
     def _detect_platform(self):
@@ -126,122 +125,6 @@ class UniversalTTS:
             # 플랫폼별 백업 TTS 시도
             self._speak_backup(message)
     
-    def _speak_jetson_espeak(self, message: str, priority: str):
-        """젯슨 espeak TTS (안정적이고 빠름)"""
-        try:
-            # espeak TTS 시도
-            rate = 150 if priority == "urgent" else 120
-            subprocess.run(['espeak', '-s', str(rate), message], check=True)
-            print("젯슨 espeak TTS 사용됨 (안정적)")
-        except Exception as e:
-            print(f"espeak TTS 실패: {e}")
-            # Riva TTS 시도
-            try:
-                self._speak_jetson_riva(message, priority)
-            except:
-                # 기본 젯슨 TTS로 폴백
-                self._speak_jetson(message, priority)
-    
-    def _speak_jetson_riva(self, message: str, priority: str):
-        """젯슨 Riva TTS (최고 성능)"""
-        try:
-            # Riva TTS 시도
-            self._speak_riva_tts(message, priority)
-            print("젯슨 Riva TTS 사용됨")
-        except Exception as e:
-            print(f"Riva TTS 실패: {e}")
-            # 기존 젯슨 TTS로 폴백
-            self._speak_jetson(message, priority)
-    
-    def _speak_riva_tts(self, message: str, priority: str):
-        """NVIDIA Riva TTS 사용"""
-        try:
-            # Riva 클라이언트 임포트 시도
-            from nvidia.riva.client import RivaClient
-            
-            # Riva 서버에 연결 (기본 포트 8000)
-            client = RivaClient("localhost:8000")
-            
-            # TTS 설정
-            sample_rate = 22050
-            language_code = "ko-KR"  # 한국어
-            
-            # 우선순위에 따른 음성 속도 조절
-            if priority == "urgent":
-                speed = 1.2  # 빠르게
-            else:
-                speed = 1.0  # 보통 속도
-            
-            # TTS 생성
-            audio = client.tts(
-                text=message,
-                language_code=language_code,
-                sample_rate_hz=sample_rate,
-                voice_name="ljspeech",  # 기본 음성
-                speed=speed
-            )
-            
-            # 오디오 재생
-            self._play_audio_data(audio, sample_rate)
-            
-        except ImportError:
-            print("Riva 클라이언트가 설치되지 않았습니다.")
-            print("설치 방법: pip install nvidia-riva-client")
-            raise Exception("Riva TTS를 사용할 수 없습니다")
-        except Exception as e:
-            print(f"Riva TTS 실행 오류: {e}")
-            raise
-    
-    def _play_audio_data(self, audio_data, sample_rate):
-        """오디오 데이터를 재생"""
-        try:
-            # numpy 배열로 변환
-            import numpy as np
-            audio_np = np.frombuffer(audio_data, dtype=np.int16)
-            
-            # WAV 파일로 저장 후 재생
-            import wave
-            wav_file = "temp_riva_speech.wav"
-            
-            with wave.open(wav_file, 'wb') as wf:
-                wf.setnchannels(1)  # 모노
-                wf.setsampwidth(2)   # 16비트
-                wf.setframerate(sample_rate)
-                wf.writeframes(audio_np.tobytes())
-            
-            # aplay로 재생
-            subprocess.run(['aplay', wav_file], check=True)
-            os.remove(wav_file)
-            
-        except Exception as e:
-            print(f"오디오 재생 오류: {e}")
-            raise
-    
-    def _speak_jetson(self, message: str, priority: str):
-        """젯슨 전용 TTS (Festival 우선, Pico 백업)"""
-        try:
-            # Festival TTS 시도
-            rate = 0.8 if priority == "urgent" else 1.0
-            subprocess.run(['festival', '--tts', f'(SayText "{message}")'], check=True)
-            print("젯슨 TTS (Festival) 사용됨")
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            print("Festival TTS 실패, Pico TTS 시도")
-            try:
-                # Pico TTS 시도
-                subprocess.run(['pico2wave', '-w', 'temp_speech.wav', message], check=True)
-                subprocess.run(['aplay', 'temp_speech.wav'], check=True)
-                os.remove('temp_speech.wav')
-                print("젯슨 TTS (Pico) 사용됨")
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                print("Pico TTS도 실패, Flite TTS 시도")
-                try:
-                    # Flite TTS 시도
-                    subprocess.run(['flite', '-t', message], check=True)
-                    print("젯슨 TTS (Flite) 사용됨")
-                except (subprocess.CalledProcessError, FileNotFoundError):
-                    print("모든 젯슨 TTS 실패")
-                    raise Exception("젯슨 TTS를 사용할 수 없습니다")
-    
     def _speak_gtts(self, message: str, priority: str):
         """Google TTS 메인 (우선 사용)"""
         try:
@@ -301,78 +184,24 @@ class UniversalTTS:
             print("pydub가 설치되지 않아 MP3를 WAV로 변환할 수 없습니다")
             raise Exception("Linux에서 MP3 재생을 위한 도구가 없습니다")
     
-    def _speak_macos(self, message: str, priority: str):
-        """macOS say 명령어"""
-        rate = 200 if priority == "urgent" else 150
-        subprocess.run(['say', '-r', str(rate), message], check=True)
-    
-    def _speak_pyttsx3(self, message: str, priority: str):
-        """pyttsx3 (Windows/Linux)"""
-        try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            rate = 200 if priority == "urgent" else 150
-            engine.setProperty('rate', rate)
-            engine.say(message)
-            engine.runAndWait()
-        except ImportError:
-            print("pyttsx3가 설치되지 않았습니다. 백업 TTS를 사용합니다.")
-            self._speak_backup(message)
-    
-    def _speak_espeak(self, message: str, priority: str):
-        """Linux espeak"""
-        rate = 200 if priority == "urgent" else 150
-        subprocess.run(['espeak', '-s', str(rate), message], check=True)
-    
     def _speak_backup(self, message: str):
         """플랫폼별 백업 TTS"""
         try:
-            if self.platform == "Jetson":
-                # 젯슨 백업 TTS
-                self._speak_jetson_backup(message)
-            elif self.backup_tts == "native_say":
-                self._speak_macos(message, "normal")
-            elif self.backup_tts == "pyttsx3":
-                self._speak_pyttsx3(message, "normal")
-            elif self.backup_tts == "festival":
-                self._speak_festival(message, "normal")
-            elif self.backup_tts == "espeak":
-                self._speak_espeak(message, "normal")
-            else:
-                self._speak_pyttsx3(message, "normal")
-            print(f"백업 TTS ({self.backup_tts}) 사용됨")
+            if self.platform == "Darwin":  # macOS
+                subprocess.run(['say', '-r', '150', message], check=True)
+            elif self.platform == "Windows":
+                import pyttsx3
+                engine = pyttsx3.init()
+                engine.setProperty('rate', 150)
+                engine.say(message)
+                engine.runAndWait()
+            elif self.platform in ["Linux", "Jetson"]:
+                subprocess.run(['espeak', '-s', '120', message], check=True)
+            print(f"백업 TTS 사용됨")
             
         except Exception as e:
             print(f"백업 TTS도 실패: {e}")
             print("음성 피드백을 제공할 수 없습니다.")
-    
-    def _speak_jetson_backup(self, message: str):
-        """젯슨 백업 TTS (Festival → espeak 순서로 시도)"""
-        try:
-            # Festival TTS (한국어 품질 양호)
-            subprocess.run(['festival', '--tts', f'(SayText "{message}")'], check=True)
-            print("젯슨 백업 TTS (Festival) 사용됨")
-        except:
-            try:
-                # Pico TTS
-                subprocess.run(['pico2wave', '-w', 'temp_speech.wav', message], check=True)
-                subprocess.run(['aplay', 'temp_speech.wav'], check=True)
-                os.remove('temp_speech.wav')
-                print("젯슨 백업 TTS (Pico) 사용됨")
-            except:
-                try:
-                    # Flite TTS
-                    subprocess.run(['flite', '-t', message], check=True)
-                    print("젯슨 백업 TTS (Flite) 사용됨")
-                except:
-                    # espeak TTS (최종 백업)
-                    subprocess.run(['espeak', '-s', '120', message], check=True)
-                    print("젯슨 백업 TTS (espeak) 사용됨")
-    
-    def _speak_festival(self, message: str, priority: str):
-        """Festival TTS (Linux/젯슨)"""
-        rate = 0.8 if priority == "urgent" else 1.0
-        subprocess.run(['festival', '--tts', f'(SayText "{message}")'], check=True)
     
     def add_feedback(self, error_type: str, priority: str = "normal"):
         """지능적 피드백 추가 (잔소리꾼 방지)"""
@@ -405,33 +234,16 @@ class UniversalTTS:
         
         return True
     
-    def get_smart_feedback_summary(self, errors: List[str]) -> str:
-        """지능적 피드백 요약 메시지 생성"""
-        if not errors:
-            return "완벽한 자세입니다!"
-        
-        if len(errors) == 1:
-            return self.feedback_messages.get(errors[0], f"{errors[0]}을 수정하세요.")
-        
-        # 2개 이상일 때는 우선순위 기반 요약
-        priority_errors = self.get_priority_order(errors)
-        if len(priority_errors) >= 2:
-            main_error = priority_errors[0]
-            return f"가장 중요한 것은 {main_error}입니다. {self.feedback_messages.get(main_error, '')}"
-        
-        return "자세를 점검해보세요."
-    
     def get_priority_order(self, errors: List[str]) -> List[str]:
         """오류를 우선순위 순서로 정렬 (안전성 > 효과성 > 최적화)"""
         priority_order = [
-            "허리 말림",        # 🚨 안전성 최우선
-            "무릎 모임",        # 🚨 안전성 최우선  
-            "굿모닝 스쿼트",    # 🚨 안전성 최우선
-            "상체 숙임",        # ⚠️ 효과성
-            "뒤꿈치 들림",      # ⚠️ 효과성
-            "골반 치우침",      # ⚠️ 효과성
-            "깊이 부족",        # 💡 최적화
-            "발목 가동성 부족"  # 💡 최적화
+            "측면 불안정성",      # 🚨 안전성 최우선
+            "무릎 모임",          # 🚨 안전성 최우선  
+            "과도한 무릎 전진",   # 🚨 안전성 최우선
+            "상체 숙여짐",        # ⚠️ 효과성
+            "부족한 깊이",        # ⚠️ 효과성
+            "좁은 스탠스",        # ⚠️ 효과성
+            "앞발목 가동성 부족"  # 💡 최적화
         ]
         
         # 우선순위 순서로 정렬
@@ -479,27 +291,6 @@ class UniversalTTS:
         except ImportError:
             tools_status['Google TTS (gTTS)'] = "❌ 설치 필요 (1순위)"
         
-        # Festival TTS 확인 (한국어 품질 양호)
-        try:
-            subprocess.run(['festival', '--version'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            tools_status['Festival TTS'] = "✅ 설치됨 (2순위)"
-        except:
-            tools_status['Festival TTS'] = "❌ 설치 필요"
-        
-        # Pico TTS 확인
-        try:
-            subprocess.run(['pico2wave', '--help'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            tools_status['Pico TTS'] = "✅ 설치됨"
-        except:
-            tools_status['Pico TTS'] = "❌ 설치 필요"
-        
-        # Flite TTS 확인
-        try:
-            subprocess.run(['flite', '--help'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            tools_status['Flite TTS'] = "✅ 설치됨"
-        except:
-            tools_status['Flite TTS'] = "❌ 설치 필요"
-        
         # espeak TTS 확인 (최종 백업)
         try:
             subprocess.run(['espeak', '--version'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -531,9 +322,6 @@ class UniversalTTS:
             
             print("\n🥈 기본 TTS 도구들 (2순위):")
             print("sudo apt-get update")
-            print("sudo apt-get install festival festvox-kallpc16k")  # Festival TTS
-            print("sudo apt-get install pico-utils")                  # Pico TTS
-            print("sudo apt-get install flite")                       # Flite TTS
             print("sudo apt-get install espeak")                      # espeak TTS
             print("sudo apt-get install mpg123")                      # MP3 재생
             
@@ -556,71 +344,64 @@ def calculate_angle(a: list, b: list, c: list) -> float:
         
     return angle
 
-class ComprehensiveSquatGrader:
+class ComprehensiveLungeGrader:
     """
-    'AI 자세 교정을 위한 종합 평가 기준'을 기반으로 한 새로운 평가 클래스.
+    'AI 런지 자세 교정을 위한 종합 평가 기준'을 기반으로 한 새로운 평가 클래스.
     계층적 피드백 구조(안전성 > 효과성 > 최적화)를 따릅니다.
     """
     def __init__(self):
         pass
 
-    def evaluate_errors(self, landmarks: dict, angles: dict, phase: str, rep_start_hip_y: float) -> List[str]:
+    def evaluate_errors(self, angles: dict, landmarks: dict, front_leg: str) -> List[str]:
         """
         자세를 평가하고 발생한 모든 오류 목록을 계층적으로 반환합니다.
         """
         errors = []
         
         # 레벨 1: 안전성 (Safety) - 즉시 교정 대상
-        if phase in ["DESCEND", "BOTTOM", "ASCEND"]:
-            # 1-1. 허리 말림 (Butt Wink)
-            if 'hip' in angles and angles['hip'] < 65:
-                errors.append("허리 말림")
-            
-            # 1-2. 무릎 모임 (Knee Valgus)
-            lk_pos, rk_pos = landmarks.get('left_knee'), landmarks.get('right_knee')
-            la_pos, ra_pos = landmarks.get('left_ankle'), landmarks.get('right_ankle')
-            if all([lk_pos, rk_pos, la_pos, ra_pos]):
-                knee_dist = abs(lk_pos[0] - rk_pos[0])
-                ankle_dist = abs(la_pos[0] - ra_pos[0])
-                if ankle_dist > 0 and knee_dist < ankle_dist * 0.85:
-                    errors.append("무릎 모임")
+        # 1-1. 측면 불안정성 (기존 ±10도 -> ±15도)
+        shoulder_angle_with_horizontal = calculate_angle(landmarks['right_shoulder'], landmarks['left_shoulder'], [landmarks['left_shoulder'][0] + 100, landmarks['left_shoulder'][1]])
+        hip_angle_with_horizontal = calculate_angle(landmarks['right_hip'], landmarks['left_hip'], [landmarks['left_hip'][0] + 100, landmarks['left_hip'][1]])
+        if not (165 <= shoulder_angle_with_horizontal <= 195) or not (165 <= hip_angle_with_horizontal <= 195):
+            errors.append("측면 불안정성")
 
-            # 1-3. "굿모닝" 스쿼트
-            if phase == "ASCEND":
-                hip_y = (landmarks['left_hip'][1] + landmarks['right_hip'][1]) / 2
-                shoulder_y = (landmarks['left_shoulder'][1] + landmarks['right_shoulder'][1]) / 2
-                # 엉덩이가 어깨보다 유의미하게 먼저 올라가는지 확인
-                if hip_y < (rep_start_hip_y * 0.9) and shoulder_y > (rep_start_hip_y * 0.95):
-                     errors.append("굿모닝 스쿼트")
+        # 1-2. 무릎 모임 (기존 10px -> 25px)
+        if front_leg == 'left':
+            if landmarks['left_knee'][0] < landmarks['left_hip'][0] - 25:
+                 errors.append("무릎 모임")
+        else:
+            if landmarks['right_knee'][0] > landmarks['right_hip'][0] + 25:
+                 errors.append("무릎 모임")
+
+        # 1-3. 과도한 무릎 전진 (기존 20px -> 35px)
+        if front_leg == 'left':
+            if landmarks['left_knee'][0] > landmarks['left_ankle'][0] + 35:
+                errors.append("과도한 무릎 전진")
+        else: # front_leg == 'right'
+            if landmarks['right_knee'][0] < landmarks['right_ankle'][0] - 35:
+                errors.append("과도한 무릎 전진")
 
         # 레벨 2: 효과성 (Effectiveness) - 주요 교정 대상
-        if phase in ["DESCEND", "BOTTOM"]:
-            # 2-1. 과도한 상체 숙임 (Chest Drop)
-            if 'torso' in angles and angles['torso'] < 45 and "허리 말림" not in errors:
-                errors.append("상체 숙임")
-            
-            # 2-2. 뒤꿈치 들림 (Heel Lift)
-            left_heel_vis = landmarks.get('left_heel_visibility', 1.0)
-            right_heel_vis = landmarks.get('right_heel_visibility', 1.0)
-            if left_heel_vis < 0.7 or right_heel_vis < 0.7:
-                 errors.append("뒤꿈치 들림")
+        # 2-1. 상체 숙여짐 (기존 15도 -> 25도 허용, 즉 각도 < 75 -> < 65)
+        if 'torso' in angles and angles['torso'] < 65: 
+            errors.append("상체 숙여짐")
 
-            # 2-3. 골반 치우침 (Pelvic Shift)
-            hip_center_x = (landmarks['left_hip'][0] + landmarks['right_hip'][0]) / 2
-            ankle_center_x = (landmarks['left_ankle'][0] + landmarks['right_ankle'][0]) / 2
-            shoulder_width = abs(landmarks['left_shoulder'][0] - landmarks['right_shoulder'][0])
-            if shoulder_width > 0 and abs(hip_center_x - ankle_center_x) > shoulder_width * 0.15:
-                errors.append("골반 치우침")
+        # 2-2. 부족한 깊이 (기존 100도 -> 115도)
+        if 'front_knee' in angles and angles['front_knee'] > 115:
+            errors.append("부족한 깊이")
+        if 'back_knee' in angles and angles['back_knee'] > 115:
+            errors.append("부족한 깊이")
+
+        # 2-3. 좁은 스탠스 (기존 어깨너비 20% -> 15%)
+        ankle_dist = abs(landmarks['left_ankle'][0] - landmarks['right_ankle'][0])
+        shoulder_dist = abs(landmarks['left_shoulder'][0] - landmarks['right_shoulder'][0])
+        if shoulder_dist > 0 and ankle_dist < shoulder_dist * 0.15:
+            errors.append("좁은 스탠스")
 
         # 레벨 3: 최적화 (Optimization) - 미세 조정
-        if phase == "BOTTOM":
-            # 3-1. 깊이 부족 (Insufficient Depth)
-            if 'knee' in angles and angles['knee'] > 120:
-                errors.append("깊이 부족")
-            
-            # 3-2. 발목 가동성 부족 (Ankle Mobility)
-            if 'ankle' in angles and angles['ankle'] > 80: # 배굴곡 각도가 충분하지 않음
-                errors.append("발목 가동성 부족")
+        # 3-1. 앞발목 가동성 부족 (기존 80도 -> 90도)
+        if 'front_ankle' in angles and angles['front_ankle'] > 90:
+            errors.append("앞발목 가동성 부족")
 
         return errors
 
@@ -635,21 +416,20 @@ class ComprehensiveSquatGrader:
 
     def get_error_priority(self, error: str) -> str:
         """오류의 우선순위를 반환합니다."""
-        safety_errors = ["허리 말림", "무릎 모임", "굿모닝 스쿼트"]
+        safety_errors = ["측면 불안정성", "무릎 모임", "과도한 무릎 전진"]
         if error in safety_errors:
             return "urgent"
         return "normal"
 
 # 오류 키와 상세 설명을 매핑하는 딕셔너리
 ERROR_CRITERIA_MAP = {
-    "허리 말림": "허리 말림 (Butt Wink): 하강 최저점에서 엉덩이가 안으로 말리며 허리의 중립이 무너지는 현상.",
-    "무릎 모임": "무릎 모임 (Knee Valgus): 하강 또는 상승 시 무릎이 발보다 안쪽으로 무너지는 현상.",
-    "굿모닝 스쿼트": '"굿모닝" 스쿼트: 상승 시 엉덩이가 상체보다 현저히 빠르게 올라와 허리에 과부하가 걸리는 현상.',
-    "상체 숙임": "과도한 상체 숙임 (Chest Drop): 힙 힌지 범위를 넘어 상체가 과도하게 앞으로 쏠리는 자세.",
-    "뒤꿈치 들림": "뒤꿈치 들림 (Heel Lift): 무게 중심이 앞으로 쏠려 뒤꿈치가 바닥에서 뜨는 현상.",
-    "골반 치우침": "골반 치우침 (Pelvic Shift): 하강 또는 상승 시 골반이 좌우 한쪽으로 쏠리는 현상.",
-    "깊이 부족": "깊이 부족 (Insufficient Depth): 허벅지가 지면과 평행이 되는 지점까지 충분히 하강하지 못하는 경우.",
-    "발목 가동성 부족": "발목 가동성 부족 (Ankle Mobility): 스쿼트 최저점에서 발목 각도(배굴곡)가 충분하지 않은 경우."
+    "측면 불안정성": "측면 불안정성: 몸통이 옆으로 기울어지거나 골반이 떨어지는 불안정한 자세.",
+    "무릎 모임": "무릎 모임 (Knee Valgus): 앞쪽 다리의 무릎이 발보다 안쪽으로 무너지는 현상.",
+    "과도한 무릎 전진": "과도한 무릎 전진: 앞 무릎이 발끝보다 훨씬 앞으로 나아가는 현상.",
+    "상체 숙여짐": "상체 숙여짐: 코어 안정성 부족으로 상체가 앞으로 굽혀지는 자세.",
+    "부족한 깊이": "부족한 깊이: 근육을 충분히 활성화하지 못하는 얕은 런지 자세.",
+    "좁은 스탠스": "좁은 스탠스 (\"외줄타기\"): 양발의 좌우 간격이 거의 없어 지지 기반이 불안정한 자세.",
+    "앞발목 가동성 부족": "앞발목 가동성 부족: 최저점에서 앞발목의 배측 굴곡이 충분하지 않은 경우."
 }
 
 def save_report(report_path: str, total_reps: int, results: List[Dict]):
@@ -658,9 +438,9 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
     grade_counts = GradeCounter(grades)
 
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("실시간 스쿼트 자세 분석 리포트 (TTS 피드백 포함)\n")
+        f.write("실시간 런지 자세 분석 리포트 (TTS 피드백 포함)\n")
         f.write("="*50 + "\n")
-        f.write(f"총 스쿼트 횟수: {total_reps}회\n\n")
+        f.write(f"총 런지 횟수: {total_reps}회\n\n")
         
         f.write("등급별 요약:\n")
         for grade in ["A", "B", "C", "D", "F"]:
@@ -684,24 +464,23 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
         f.write("          자세 평가 기준 (참고)\n")
         f.write("="*50 + "\n\n")
 
-        f.write("1. 스쿼트 (Squat) 종합 기준\n")
+        f.write("1. 런지 (Lunge) 종합 기준\n")
         f.write("-------------------------\n")
         f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상\n")
-        f.write("- 허리 말림 (Butt Wink): 하강 최저점에서 엉덩이가 안으로 말리며 허리의 중립이 무너지는 현상.\n")
-        f.write("- 무릎 모임 (Knee Valgus): 하강 또는 상승 시 무릎이 발보다 안쪽으로 무너지는 현상.\n")
-        f.write("- \"굿모닝\" 스쿼트: 상승 시 엉덩이가 상체보다 현저히 빠르게 올라와 허리에 과부하가 걸리는 현상.\n\n")
+        f.write("- 측면 불안정성: 어깨/엉덩이 선이 수평에서 ±15도 이상 벗어남\n")
+        f.write("- 무릎 모임 (Knee Valgus): 앞 무릎이 엉덩이-발목 선보다 안쪽으로 25px 이상 들어옴\n")
+        f.write("- 과도한 무릎 전진: 앞 무릎이 발목보다 35px 이상 앞으로 나감\n\n")
         f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상\n")
-        f.write("- 과도한 상체 숙임 (Chest Drop): 힙 힌지 범위를 넘어 상체가 과도하게 앞으로 쏠리는 자세.\n")
-        f.write("- 뒤꿈치 들림 (Heel Lift): 무게 중심이 앞으로 쏠려 뒤꿈치가 바닥에서 뜨는 현상.\n")
-        f.write("- 골반 치우침 (Pelvic Shift): 하강 또는 상승 시 골반이 좌우 한쪽으로 쏠리는 현상.\n\n")
+        f.write("- 상체 숙여짐: 상체가 수직선 대비 25도 이상 기울어짐 (각도 65도 미만)\n")
+        f.write("- 부족한 깊이: 앞/뒤 무릎 각도가 115도를 넘음\n")
+        f.write("- 좁은 스탠스: 발목 간격이 어깨너비의 15% 미만\n\n")
         f.write("레벨 3: 최적화 (Optimization) - 미세 조정\n")
-        f.write("- 깊이 부족 (Insufficient Depth): 허벅지가 지면과 평행이 되는 지점(무릎 각도 약 110~120도)까지 충분히 하강하지 못하는 경우.\n")
-        f.write("- 발목 가동성 부족 (Ankle Mobility): 스쿼트 최저점에서 발목 각도(배굴곡)가 약 20도 미만으로, 가동 범위가 제한되는 경우.\n\n")
+        f.write("- 앞발목 가동성 부족: 앞발목 각도가 90도를 넘음 (배측 굴곡 부족)\n\n")
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
-def run_squat_analysis(duration_seconds=120, stop_callback=None):
-    """실시간 카메라를 통한 스쿼트 분석 함수 (TTS 피드백 포함)
+def run_lunge_analysis(duration_seconds=120, stop_callback=None):
+    """실시간 카메라를 통한 런지 분석 함수 (TTS 피드백 포함)
     
     Args:
         duration_seconds (int): 분석할 시간 (초), 기본값 120초 (2분)
@@ -709,7 +488,7 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
     """
     
     # 중지 플래그 초기화
-    run_squat_analysis._stop_analysis = False
+    run_lunge_analysis._stop_analysis = False
     
     try:
         # 카메라 초기화
@@ -753,8 +532,8 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
     
     # 타임스탬프를 포함한 파일명 생성 (output 디렉토리 내)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_video_path = os.path.join(output_dir, f"squat_realtime_tts_analysis_{timestamp}.mp4")
-    output_report_path = os.path.join(output_dir, f"squat_realtime_tts_report_{timestamp}.txt")
+    output_video_path = os.path.join(output_dir, f"lunge_realtime_tts_analysis_{timestamp}.mp4")
+    output_report_path = os.path.join(output_dir, f"lunge_realtime_tts_report_{timestamp}.txt")
     
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
     
@@ -763,9 +542,9 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
         print("TTS 매니저 초기화 중...")
         tts_manager = UniversalTTS()
         
-        # 스쿼트 등급 평가기 초기화
-        print("스쿼트 등급 평가기 초기화 중...")
-        grader = ComprehensiveSquatGrader()
+        # 런지 등급 평가기 초기화
+        print("런지 등급 평가기 초기화 중...")
+        grader = ComprehensiveLungeGrader()
         
         # 변수 초기화
         counter = 0 
@@ -773,7 +552,6 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
         all_rep_results = []
         current_rep_errors = set()
         last_rep_grade = "N/A"
-        rep_start_hip_y = 0
         
         print("초기화 완료!")
         
@@ -787,9 +565,9 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
     start_time = time.time()
     recording_duration = duration_seconds
     
-    print(f"스쿼트 분석을 시작합니다. {duration_seconds}초간 카메라가 켜집니다.")
+    print(f"런지 분석을 시작합니다. {duration_seconds}초간 카메라가 켜집니다.")
     print("TTS 피드백이 실시간으로 제공됩니다!")
-    print("스쿼트 동작을 시작하세요!")
+    print("런지 동작을 시작하세요!")
     print("종료하려면 'q'를 누르세요.")
     
     # 시작 안내 메시지
@@ -846,63 +624,73 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
                 'right_knee': [landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value].x * w, landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value].y * h],
                 'right_ankle': [landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value].x * w, landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value].y * h],
                 'right_foot_index': [landmarks[mp_pose.PoseLandmark.RIGHT_FOOT_INDEX.value].x * w, landmarks[mp_pose.PoseLandmark.RIGHT_FOOT_INDEX.value].y * h],
-                'left_heel_visibility': landmarks[mp_pose.PoseLandmark.LEFT_HEEL.value].visibility,
-                'right_heel_visibility': landmarks[mp_pose.PoseLandmark.RIGHT_HEEL.value].visibility,
             }
             
+            # 각도 계산
             angles = {}
-            use_left_side = landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].visibility > landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].visibility
-            if use_left_side:
-                angles['hip'] = calculate_angle(lm_data['left_shoulder'], lm_data['left_hip'], lm_data['left_knee'])
-                angles['knee'] = calculate_angle(lm_data['left_hip'], lm_data['left_knee'], lm_data['left_ankle'])
-                angles['ankle'] = calculate_angle(lm_data['left_knee'], lm_data['left_ankle'], lm_data['left_foot_index'])
-                angles['torso'] = calculate_angle(lm_data['left_hip'], lm_data['left_shoulder'], [lm_data['left_shoulder'][0], lm_data['left_shoulder'][1] - 1])
-            else:
-                angles['hip'] = calculate_angle(lm_data['right_shoulder'], lm_data['right_hip'], lm_data['right_knee'])
-                angles['knee'] = calculate_angle(lm_data['right_hip'], lm_data['right_knee'], lm_data['right_ankle'])
-                angles['ankle'] = calculate_angle(lm_data['right_knee'], lm_data['right_ankle'], lm_data['right_foot_index'])
-                angles['torso'] = calculate_angle(lm_data['right_hip'], lm_data['right_shoulder'], [lm_data['right_shoulder'][0], lm_data['right_shoulder'][1] - 1])
+            left_knee_angle = calculate_angle(lm_data['left_hip'], lm_data['left_knee'], lm_data['left_ankle'])
+            right_knee_angle = calculate_angle(lm_data['right_hip'], lm_data['right_knee'], lm_data['right_ankle'])
             
-            if 'knee' in angles:
-                knee_angle = angles['knee']
-                
-                if knee_angle > 160:
-                    if stage == 'down': 
-                        final_grade = grader.get_grade_from_errors(list(current_rep_errors))
-                        all_rep_results.append({'rep': counter, 'grade': final_grade, 'errors': list(current_rep_errors)})
-                        last_rep_grade = final_grade
-                        
-                        # 스쿼트 완료 시 격려 메시지
-                        if counter > 0:
-                            tts_manager.add_encouragement(counter)
-                        
-                        current_rep_errors.clear()
-                    stage = "up"
+            # 앞다리 판단 (더 작은 무릎 각도를 가진 다리가 앞다리로 가정)
+            front_leg = 'left' if left_knee_angle < right_knee_angle else 'right'
+            
+            if front_leg == 'left':
+                angles['front_knee'] = left_knee_angle
+                angles['back_knee'] = right_knee_angle
+                # 상체 각도는 수직선 대비
+                angles['torso'] = calculate_angle(lm_data['left_hip'], lm_data['left_shoulder'], [lm_data['left_shoulder'][0], lm_data['left_shoulder'][1] - 100])
+                angles['front_ankle'] = calculate_angle(lm_data['left_knee'], lm_data['left_ankle'], lm_data['left_foot_index'])
+            else:
+                angles['front_knee'] = right_knee_angle
+                angles['back_knee'] = left_knee_angle
+                # 상체 각도는 수직선 대비
+                angles['torso'] = calculate_angle(lm_data['right_hip'], lm_data['right_shoulder'], [lm_data['right_shoulder'][0], lm_data['right_shoulder'][1] - 100])
+                angles['front_ankle'] = calculate_angle(lm_data['right_knee'], lm_data['right_ankle'], lm_data['right_foot_index'])
+            
+            # 런지 반복 횟수(카운트) 로직
+            # 런지 깊이가 충분할 때 (내려갔을 때)
+            if (angles['front_knee'] < 100 or angles['back_knee'] < 100) and stage == 'up':
+                stage = "down"
+                current_rep_errors.clear() # 새로운 랩 시작 시 이전 오류 초기화
 
-                if knee_angle < 100 and stage == 'up':
-                    stage = "down"
-                    counter += 1
-                    rep_start_hip_y = (lm_data['left_hip'][1] + lm_data['right_hip'][1]) / 2
-
-                current_phase = ""
-                if stage == "up": current_phase = "ASCEND" if knee_angle < 170 else "READY"
-                elif stage == "down": current_phase = "BOTTOM" if knee_angle < 90 else "DESCEND"
+            # 완전히 일어섰을 때
+            if (angles['front_knee'] > 160 and angles['back_knee'] > 160) and stage == 'down':
+                stage = "up"
+                counter += 1
+                # 1회 반복이 끝났으므로 최종 등급을 매기고 결과 저장
+                final_grade = grader.get_grade_from_errors(list(current_rep_errors))
+                all_rep_results.append({'rep': counter, 'grade': final_grade, 'errors': list(current_rep_errors)})
+                last_rep_grade = final_grade
                 
-                if stage == "down" or stage == "up":
-                    errors_in_frame = grader.evaluate_errors(lm_data, angles, current_phase, rep_start_hip_y)
-                    
-                    # 현재 등급 계산하여 TTS 매니저에 전달
-                    current_grade = grader.get_grade_from_errors(list(current_rep_errors))
-                    tts_manager.current_grade = current_grade
-                    tts_manager.current_rep_errors = current_rep_errors
-                    
-                    # 새로운 오류에 대해서만 TTS 피드백 제공
-                    for error in errors_in_frame:
-                        if error not in current_rep_errors:
-                            priority = grader.get_error_priority(error)
-                            tts_manager.add_feedback(error, priority)
-                    
-                    current_rep_errors.update(errors_in_frame)
+                # 런지 완료 시 격려 메시지
+                if counter > 0:
+                    tts_manager.add_encouragement(counter)
+                
+            # 현재 단계(Phase) 결정
+            current_phase = ""
+            if stage is None: # 초기 상태
+                current_phase = "READY"
+            elif stage == "up":
+                current_phase = "UP"
+            elif stage == "down":
+                current_phase = "DOWN"
+            
+            # 오류 누적: 내려간 상태('down')일 때만 오류를 기록
+            if stage == "down":
+                errors_in_frame = grader.evaluate_errors(angles, lm_data, front_leg)
+                
+                # 현재 등급 계산하여 TTS 매니저에 전달
+                current_grade = grader.get_grade_from_errors(list(current_rep_errors))
+                tts_manager.current_grade = current_grade
+                tts_manager.current_rep_errors = current_rep_errors
+                
+                # 새로운 오류에 대해서만 TTS 피드백 제공
+                for error in errors_in_frame:
+                    if error not in current_rep_errors:
+                        priority = grader.get_error_priority(error)
+                        tts_manager.add_feedback(error, priority)
+                
+                current_rep_errors.update(errors_in_frame)
 
         except Exception as e:
             pass
@@ -945,13 +733,13 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
 
         # OpenCV 창 표시 (젯슨에서만 활성화, macOS에서는 비활성화)
         # try:
-        #     cv2.namedWindow('Real-time Squat Analysis with TTS', cv2.WINDOW_NORMAL)
-        #     cv2.resizeWindow('Real-time Squat Analysis with TTS', 1280, 720)
+        #     cv2.namedWindow('Real-time Lunge Analysis with TTS', cv2.WINDOW_NORMAL)
+        #     cv2.resizeWindow('Real-time Lunge Analysis with TTS', 1280, 720)
         # except Exception as e:
         #     print(f"창 생성 실패, 기본 창 사용: {e}")
         
         # try:
-        #     cv2.imshow('Real-time Squat Analysis with TTS', image)
+        #     cv2.imshow('Real-time Lunge Analysis with TTS', image)
         # except Exception as e:
         #     print(f"이미지 표시 실패: {e}")
 
@@ -973,9 +761,9 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
         # 젯슨에서만 스켈레톤 표시
         if is_jetson:
             try:
-                cv2.namedWindow('Real-time Squat Analysis with TTS', cv2.WINDOW_NORMAL)
-                cv2.resizeWindow('Real-time Squat Analysis with TTS', 1280, 720)
-                cv2.imshow('Real-time Squat Analysis with TTS', image)
+                cv2.namedWindow('Real-time Lunge Analysis with TTS', cv2.WINDOW_NORMAL)
+                cv2.resizeWindow('Real-time Lunge Analysis with TTS', 1280, 720)
+                cv2.imshow('Real-time Lunge Analysis with TTS', image)
                 
                 # 젯슨에서는 키 입력도 처리
                 key = cv2.waitKey(10) & 0xFF
@@ -995,11 +783,11 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
         
         # 시간 기반 종료 조건 (예: 5초마다 상태 출력)
         if int(time.time()) % 5 == 0 and int(time.time()) != getattr(locals(), '_last_status_time', 0):
-            print(f"스쿼트 분석 진행 중... 시간: {remaining_time:.1f}초, 반복: {counter}")
+            print(f"런지 분석 진행 중... 시간: {remaining_time:.1f}초, 반복: {counter}")
             _last_status_time = int(time.time())
         
         # 분석 중지 체크 (전역 변수로 제어)
-        if hasattr(run_squat_analysis, '_stop_analysis') and run_squat_analysis._stop_analysis:
+        if hasattr(run_lunge_analysis, '_stop_analysis') and run_lunge_analysis._stop_analysis:
             print("분석이 중지되었습니다.")
             break
 
@@ -1008,12 +796,7 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
             print("분석이 중지되었습니다.")
             break
 
-        # 더 자주 중지 체크 (매 10프레임마다)
-        if counter % 10 == 0 and stop_callback and stop_callback():
-            print("분석이 중지되었습니다.")
-            break
-
-    # 마지막 스쿼트가 완료되지 않았다면 처리
+    # 마지막 런지가 완료되지 않았다면 처리
     if stage == 'down' and current_rep_errors:
         final_grade = grader.get_grade_from_errors(list(current_rep_errors))
         all_rep_results.append({'rep': counter, 'grade': final_grade, 'errors': list(current_rep_errors)})
@@ -1029,7 +812,7 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
     save_report(output_report_path, counter, all_rep_results)
     print(f"분석 영상이 '{output_video_path}'에 저장되었습니다.")
     print(f"분석 리포트가 '{output_report_path}'에 저장되었습니다.")
-    print(f"총 {counter}회의 스쿼트를 분석했습니다.")
+    print(f"총 {counter}회의 런지를 분석했습니다.")
     print("TTS 피드백이 실시간으로 제공되었습니다.")
     
     # 결과 파일 경로 반환
@@ -1037,11 +820,11 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None):
 
 def main():
     """기존 main 함수 (호환성 유지)"""
-    video_path, report_path = run_squat_analysis(120)  # 기본 2분
+    video_path, report_path = run_lunge_analysis(120)  # 기본 2분
     if video_path and report_path:
         print(f"분석 완료: {video_path}, {report_path}")
     else:
         print("분석 실패")
 
 if __name__ == "__main__":
-    main() 
+    main()
