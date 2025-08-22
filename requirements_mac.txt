@@ -1,0 +1,17 @@
+# 맥북용 PyQt5 스쿼트 분석 애플리케이션 의존성
+
+# GUI 프레임워크 (맥북용)
+PyQt5>=5.15.0
+
+# 기본 Python 패키지들
+numpy>=1.21.0
+pillow>=8.0.0
+
+# 스쿼트 분석 관련 (이미 설치됨)
+# opencv-python>=4.8.0
+# mediapipe>=0.10.0
+# gtts>=2.4.0
+# pydub>=0.25.0
+
+# 맥북 특화 패키지
+# pyobjc-framework-Cocoa>=9.0  # 맥북 GUI 지원 
