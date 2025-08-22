@@ -7,22 +7,6 @@ echo "=========================================="
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Python 가상환경 확인 (맥북용)
-if [ -d "../repit-env" ]; then
-    echo "✅ 가상환경 발견, 활성화 중..."
-    source ../repit-env/bin/activate
-elif [ -d "../venv" ]; then
-    echo "✅ 가상환경 발견, 활성화 중..."
-    source ../venv/bin/activate
-else
-    echo "⚠️ 가상환경을 찾을 수 없습니다."
-    echo "   ../repit-env 또는 ../venv 디렉토리가 존재하는지 확인하세요."
-    echo "   또는 새 가상환경을 생성하세요:"
-    echo "   python3 -m venv venv"
-    echo "   source venv/bin/activate"
-    exit 1
-fi
-
 # PyQt5 설치 확인
 echo "🔍 PyQt5 설치 확인 중..."
 if python -c "import PyQt5" 2>/dev/null; then
