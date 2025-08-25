@@ -119,8 +119,36 @@ class ExerciseAnalyzerThread(QThread):
                     return
 
             elif self.exercise_type == "plank":
-                self.error_occurred.emit("플랭크 분석은 아직 준비 중입니다.")
-                return
+                self.status_updated.emit("플랭크 분석 모듈 로드 중...")
+                try:
+                    # 동적 import로 메모리 충돌 방지
+                    import importlib
+                    import sys
+
+                    if 'plank' in sys.modules:
+                        plank_module = sys.modules['plank']
+                        importlib.reload(plank_module)
+                    else:
+                        plank_module = importlib.import_module('plank')
+
+                    self.status_updated.emit("플랭크 분석 시작...")
+
+                    # plank.py에 있는 분석 함수 이름을 'run_plank_analysis'로 가정합니다.
+                    # 만약 함수 이름이 다르다면 이 부분을 수정해야 합니다.
+                    if hasattr(plank_module, 'run_plank_analysis'):
+                        video_path, report_path = plank_module.run_plank_analysis(
+                            self.duration_seconds, self.should_stop, self.frame_callback
+                        )
+                    else:
+                        self.error_occurred.emit("분석 함수(run_plank_analysis)를 찾을 수 없습니다.")
+                        return
+
+                except ImportError as e:
+                    self.error_occurred.emit(f"플랭크 모듈(plank.py) 로드 실패: {str(e)}")
+                    return
+                except Exception as e:
+                    self.error_occurred.emit(f"플랭크 분석 실행 오류: {str(e)}")
+                    return
             else:
                 self.error_occurred.emit("알 수 없는 운동 타입입니다.")
                 return
