@@ -104,6 +104,7 @@ class CameraThread(QThread):
             while self.running:
                 ret, frame = self.cap.read()
                 if ret:
+                    frame = cv2.flip(frame, 1)
                     # 프레임을 RGB로 변환하여 PyQt5에서 표시
                     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     self.frame_ready.emit(rgb_frame)
@@ -140,6 +141,11 @@ class MainWindow(QMainWindow):
         self.analyzer_thread = None
         self.camera_thread = None
         self.is_analyzing = False
+        
+        # 타이머
+        self.elapsed_time = 0
+        self.analysis_timer = QTimer(self)
+        self.analysis_timer.timeout.connect(self.update_timer_display)
         
         # UI 초기화
         self.init_ui()
@@ -199,8 +205,8 @@ class MainWindow(QMainWindow):
         
         duration_label = QLabel("분석 시간 (초):")
         self.duration_spinbox = QSpinBox()
-        self.duration_spinbox.setRange(30, 600)
-        self.duration_spinbox.setValue(60)  # 기본값을 60초로 변경
+        self.duration_spinbox.setRange(5, 600)
+        self.duration_spinbox.setValue(5)  # 기본값을 60초로 변경
         self.duration_spinbox.valueChanged.connect(self.update_duration)
         
         settings_layout.addWidget(duration_label)
@@ -224,6 +230,11 @@ class MainWindow(QMainWindow):
         
         left_layout.addWidget(control_group)
         
+        self.timer_label = QLabel("경과 시간: 0초")
+        self.timer_label.setAlignment(Qt.AlignCenter)
+        self.timer_label.setStyleSheet("QLabel { font-size: 16px; font-weight: bold; margin-top: 10px; }")
+        left_layout.addWidget(self.timer_label)
+        
         # 상태 표시
         self.status_label = QLabel("대기 중...")
         self.status_label.setAlignment(Qt.AlignCenter)
@@ -236,6 +247,11 @@ class MainWindow(QMainWindow):
         self.update_button_styles()
         
         return left_panel
+    
+    def update_timer_display(self):
+        """1초마다 호출되어 경과 시간 라벨을 업데이트"""
+        self.elapsed_time += 1
+        self.timer_label.setText(f"경과 시간: {self.elapsed_time}초")
     
     def create_right_panel(self):
         """오른쪽 패널 생성 (카메라 화면 및 분석 상태)"""
@@ -445,6 +461,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "경고", "운동을 선택해주세요.")
             return
         
+        self.elapsed_time = 0
+        self.timer_label.setText("경과 시간: 0초")
+        self.analysis_timer.start(1000) 
+        
         duration = self.duration_spinbox.value()
         
         # 분석 스레드 시작
@@ -462,6 +482,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("분석 시작 중...")
     
     def stop_analysis(self):
+        self.analysis_timer.stop()
         """분석 중지"""
         if self.analyzer_thread and self.analyzer_thread.isRunning():
             print("분석 중지 요청 중...")
@@ -494,6 +515,7 @@ class MainWindow(QMainWindow):
     
     def on_analysis_finished(self, video_path, report_path):
         """분석 완료 처리"""
+        self.analysis_timer.stop() 
         self.is_analyzing = False
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
@@ -530,6 +552,7 @@ class MainWindow(QMainWindow):
     
     def on_analysis_error(self, error_msg):
         """분석 오류 처리"""
+        self.analysis_timer.stop() 
         self.is_analyzing = False
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
