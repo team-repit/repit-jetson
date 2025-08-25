@@ -451,7 +451,7 @@ def save_report(report_path: str, hold_results: List[Dict]):
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
-def run_plank_analysis(duration_seconds=120, stop_callback=None):
+def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=None):
     """실시간 카메라를 통한 플랭크 분석 함수 (TTS 피드백 포함)
     
     Args:
@@ -695,6 +695,9 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None):
         mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
                                 mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=2), 
                                 mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2))               
+        
+        if frame_callback:
+            frame_callback(image.copy())
         
         out.write(image)
         

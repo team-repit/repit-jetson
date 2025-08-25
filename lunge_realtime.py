@@ -479,7 +479,8 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
-def run_lunge_analysis(duration_seconds=120, stop_callback=None):
+# def run_lunge_analysis(duration_seconds=120, stop_callback=None):
+def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=None):
     """실시간 카메라를 통한 런지 분석 함수 (TTS 피드백 포함)
     
     Args:
@@ -552,6 +553,7 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None):
         all_rep_results = []
         current_rep_errors = set()
         last_rep_grade = "N/A"
+        current_phase = "READY"
         
         print("초기화 완료!")
         
@@ -606,7 +608,12 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None):
         
         # 포즈 랜드마크가 감지되지 않은 경우 건너뛰기
         if not results.pose_landmarks:
-            print("포즈 랜드마크가 감지되지 않았습니다. 카메라 앞에 사람이 있는지 확인하세요.")
+            # 랜드마크가 없어도 기본 UI는 표시
+            cv2.rectangle(image, (0, 0), (frame_width, 120), (245, 117, 16), -1)
+            cv2.putText(image, f'TIME: {remaining_time:.1f}s', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                        (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(image, 'No Person Detected', (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
+            out.write(image)
             continue
             
         try:
@@ -649,7 +656,7 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None):
             
             # 런지 반복 횟수(카운트) 로직
             # 런지 깊이가 충분할 때 (내려갔을 때)
-            if (angles['front_knee'] < 100 or angles['back_knee'] < 100) and stage == 'up':
+            if (angles['front_knee'] < 100 or angles['back_knee'] < 100) and (stage == 'up' or stage is None):
                 stage = "down"
                 current_rep_errors.clear() # 새로운 랩 시작 시 이전 오류 초기화
 
@@ -667,7 +674,6 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None):
                     tts_manager.add_encouragement(counter)
                 
             # 현재 단계(Phase) 결정
-            current_phase = ""
             if stage is None: # 초기 상태
                 current_phase = "READY"
             elif stage == "up":
@@ -694,8 +700,13 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None):
 
         except Exception as e:
             pass
+
+        # 스켈레톤 그리기
+        mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                                mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=2), 
+                                mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2))
         
-        # ------------------ 화면 표시 정보 수정 ------------------
+        # ------------------ 화면 표시 정보  ------------------
         # 상단 정보 박스
         cv2.rectangle(image, (0,0), (frame_width, 120), (245,117,16), -1)
         
@@ -708,7 +719,7 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None):
         
         # PHASE
         cv2.putText(image, 'PHASE', (int(frame_width * 0.5), 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
-        cv2.putText(image, current_phase if 'current_phase' in locals() else "READY", (int(frame_width * 0.5), 65), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255,255,255), 3, cv2.LINE_AA)
+        cv2.putText(image, current_phase, (int(frame_width * 0.5), 65), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255,255,255), 3, cv2.LINE_AA)
 
         # LAST REP GRADE
         cv2.putText(image, 'GRADE', (int(frame_width * 0.7), 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
@@ -722,26 +733,13 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None):
         cv2.putText(image, 'Press Q to quit early | TTS Feedback Active', (10, frame_height-20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2, cv2.LINE_AA)
         # ----------------------------------------------------
         
-        mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-                                mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=2), 
-                                mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2))               
+        if frame_callback:
+            frame_callback(image.copy())
         
         out.write(image)
         
         # macOS에서는 GUI 없이 콘솔 모드로 실행
-        print(f"프레임 처리 중... REP: {counter}, PHASE: {current_phase if 'current_phase' in locals() else 'READY'}, GRADE: {last_rep_grade}")
-
-        # OpenCV 창 표시 (젯슨에서만 활성화, macOS에서는 비활성화)
-        # try:
-        #     cv2.namedWindow('Real-time Lunge Analysis with TTS', cv2.WINDOW_NORMAL)
-        #     cv2.resizeWindow('Real-time Lunge Analysis with TTS', 1280, 720)
-        # except Exception as e:
-        #     print(f"창 생성 실패, 기본 창 사용: {e}")
-        
-        # try:
-        #     cv2.imshow('Real-time Lunge Analysis with TTS', image)
-        # except Exception as e:
-        #     print(f"이미지 표시 실패: {e}")
+        print(f"프레임 처리 중... REP: {counter}, PHASE: {current_phase}, GRADE: {last_rep_grade}")
 
         # 플랫폼별 OpenCV 창 표시
         import platform
