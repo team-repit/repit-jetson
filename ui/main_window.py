@@ -468,7 +468,7 @@ class MainWindow(QMainWindow):
                 # print("[DEBUG] 빈 프레임 수신")
                 return
 
-            # 좌우반전 적용 - 사용자와 텍스트 모두 반전
+            # 카메라 프레임을 거울모드로 표시 (운동 분석 시작 전 구도 맞추기용)
             frame = cv2.flip(frame, 1)
 
             h, w, ch = frame.shape

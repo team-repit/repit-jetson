@@ -803,8 +803,8 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
                 print("프레임을 읽을 수 없습니다.")
                 break
 
-            # 좌우반전 제거 - GUI에서 한 번만 반전하도록
-            # frame = cv2.flip(frame, 1)  # 주석 처리
+            # 카메라 프레임을 거울모드로 변환 (운동 분석 중에도 거울모드 유지)
+            frame = cv2.flip(frame, 1)
 
             # 현재 시간 계산
             current_time = time.time()
@@ -981,11 +981,14 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
         # ----------------------------------------------------
 
-        # GUI로 처리된 프레임 전달 (저장되는 영상과 동일)
+        # 텍스트를 그린 후 전체 이미지를 좌우 반전 (거울모드)
+        flipped_image = cv2.flip(image, 1)
+        
+        # GUI로 처리된 프레임 전달 (거울모드로 반전된 프레임)
         if frame_callback:
-            frame_callback(image.copy())  # image는 처리된 프레임 (BGR 형식)
+            frame_callback(flipped_image.copy())  # 반전된 프레임을 GUI로 전달
 
-        # 동영상 저장
+        # 동영상 저장 (원본 방향으로 저장)
         out.write(image)
 
         # macOS에서는 GUI 없이 콘솔 모드로 실행

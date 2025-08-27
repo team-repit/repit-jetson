@@ -552,6 +552,9 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
                 print("프레임을 읽을 수 없습니다.")
                 break
             
+            # 카메라 프레임을 거울모드로 변환 (운동 분석 중에도 거울모드 유지)
+            frame = cv2.flip(frame, 1)
+            
             # 현재 시간 계산
             current_time = time.time()
             elapsed_time = current_time - start_time
@@ -696,9 +699,14 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
                                 mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=2), 
                                 mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2))               
         
-        if frame_callback:
-            frame_callback(image.copy())
+        # 텍스트를 그린 후 전체 이미지를 좌우 반전 (거울모드)
+        flipped_image = cv2.flip(image, 1)
         
+        # GUI로 처리된 프레임 전달 (거울모드로 반전된 프레임)
+        if frame_callback:
+            frame_callback(flipped_image.copy())  # 반전된 프레임을 GUI로 전달
+        
+        # 동영상 저장 (원본 방향으로 저장)
         out.write(image)
         
         # macOS에서는 GUI 없이 콘솔 모드로 실행
