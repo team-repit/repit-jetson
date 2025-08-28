@@ -10,6 +10,20 @@ from typing import List, Dict, Tuple, Optional
 from collections import Counter as GradeCounter
 import json
 
+# 🎯 2024년 런지 점수 기준 적당히 완화 업데이트
+# 기존: 너무 엄격한 기준으로 D, F 등급이 많이 나옴
+# 완화: 적당히 완화하여 현실적이면서도 의미있는 평가 시스템
+# 
+# 주요 변경사항:
+# 1. 점수 기준: 0개=A, 1-2개=B, 3-4개=C, 5-6개=D, 7개+=F
+# 2. 측면 불안정성: ±15도 -> ±20도로 완화
+# 3. 무릎 모임: 25px -> 30px로 완화
+# 4. 과도한 무릎 전진: 35px -> 40px로 완화
+# 5. 상체 숙여짐: 65도 -> 60도로 완화
+# 6. 부족한 깊이: 115도 -> 120도로 완화
+# 7. 좁은 스탠스: 15% -> 20%로 완화
+# 8. 앞발목 가동성: 90도 -> 95도로 완화
+
 # MediaPipe Pose 모델 초기화
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
@@ -358,61 +372,65 @@ class ComprehensiveLungeGrader:
         """
         errors = []
         
-        # 레벨 1: 안전성 (Safety) - 즉시 교정 대상
-        # 1-1. 측면 불안정성 (기존 ±10도 -> ±15도)
+        # 레벨 1: 안전성 (Safety) - 즉시 교정 대상 (적당히 완화된 기준)
+        # 1-1. 측면 불안정성 (기존 ±15도 -> ±20도로 완화)
         shoulder_angle_with_horizontal = calculate_angle(landmarks['right_shoulder'], landmarks['left_shoulder'], [landmarks['left_shoulder'][0] + 100, landmarks['left_shoulder'][1]])
         hip_angle_with_horizontal = calculate_angle(landmarks['right_hip'], landmarks['left_hip'], [landmarks['left_hip'][0] + 100, landmarks['left_hip'][1]])
-        if not (165 <= shoulder_angle_with_horizontal <= 195) or not (165 <= hip_angle_with_horizontal <= 195):
+        if not (160 <= shoulder_angle_with_horizontal <= 200) or not (160 <= hip_angle_with_horizontal <= 200):
             errors.append("측면 불안정성")
 
-        # 1-2. 무릎 모임 (기존 10px -> 25px)
+        # 1-2. 무릎 모임 (기존 25px -> 30px로 완화)
         if front_leg == 'left':
-            if landmarks['left_knee'][0] < landmarks['left_hip'][0] - 25:
+            if landmarks['left_knee'][0] < landmarks['left_hip'][0] - 30:
                  errors.append("무릎 모임")
         else:
-            if landmarks['right_knee'][0] > landmarks['right_hip'][0] + 25:
+            if landmarks['right_knee'][0] > landmarks['right_hip'][0] + 30:
                  errors.append("무릎 모임")
 
-        # 1-3. 과도한 무릎 전진 (기존 20px -> 35px)
+        # 1-3. 과도한 무릎 전진 (기존 35px -> 40px로 완화)
         if front_leg == 'left':
-            if landmarks['left_knee'][0] > landmarks['left_ankle'][0] + 35:
+            if landmarks['left_knee'][0] > landmarks['left_ankle'][0] + 40:
                 errors.append("과도한 무릎 전진")
         else: # front_leg == 'right'
-            if landmarks['right_knee'][0] < landmarks['right_ankle'][0] - 35:
+            if landmarks['right_knee'][0] < landmarks['right_ankle'][0] - 40:
                 errors.append("과도한 무릎 전진")
 
-        # 레벨 2: 효과성 (Effectiveness) - 주요 교정 대상
-        # 2-1. 상체 숙여짐 (기존 15도 -> 25도 허용, 즉 각도 < 75 -> < 65)
-        if 'torso' in angles and angles['torso'] < 65: 
+        # 레벨 2: 효과성 (Effectiveness) - 주요 교정 대상 (적당히 완화된 기준)
+        # 2-1. 상체 숙여짐 (기존 65도 -> 60도로 완화)
+        if 'torso' in angles and angles['torso'] < 60: 
             errors.append("상체 숙여짐")
 
-        # 2-2. 부족한 깊이 (기존 100도 -> 115도)
-        if 'front_knee' in angles and angles['front_knee'] > 115:
+        # 2-2. 부족한 깊이 (기존 115도 -> 120도로 완화)
+        if 'front_knee' in angles and angles['front_knee'] > 120:
             errors.append("부족한 깊이")
-        if 'back_knee' in angles and angles['back_knee'] > 115:
+        if 'back_knee' in angles and angles['back_knee'] > 120:
             errors.append("부족한 깊이")
 
-        # 2-3. 좁은 스탠스 (기존 어깨너비 20% -> 15%)
+        # 2-3. 좁은 스탠스 (기존 15% -> 20%로 완화)
         ankle_dist = abs(landmarks['left_ankle'][0] - landmarks['right_ankle'][0])
         shoulder_dist = abs(landmarks['left_shoulder'][0] - landmarks['right_shoulder'][0])
-        if shoulder_dist > 0 and ankle_dist < shoulder_dist * 0.15:
+        if shoulder_dist > 0 and ankle_dist < shoulder_dist * 0.2:
             errors.append("좁은 스탠스")
 
-        # 레벨 3: 최적화 (Optimization) - 미세 조정
-        # 3-1. 앞발목 가동성 부족 (기존 80도 -> 90도)
-        if 'front_ankle' in angles and angles['front_ankle'] > 90:
+        # 레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)
+        # 3-1. 앞발목 가동성 부족 (기존 90도 -> 95도로 완화)
+        if 'front_ankle' in angles and angles['front_ankle'] > 95:
             errors.append("앞발목 가동성 부족")
 
         return errors
 
     def get_grade_from_errors(self, errors: List[str]) -> str:
-        """오류 개수에 따라 등급을 반환합니다."""
+        """오류 개수에 따라 등급을 반환합니다. (적당히 완화된 기준)"""
         num_errors = len(set(errors))
-        if num_errors == 0: return "A"
-        elif num_errors == 1: return "B"
-        elif num_errors == 2: return "C"
-        elif num_errors == 3: return "D"
-        else: return "F"
+        
+        # 점수 기준 적당히 완화 (너무 후하지도, 너무 엄격하지도 않은 균형)
+        # 기존: 0개=A, 1개=B, 2개=C, 3개=D, 4개+=F
+        # 조정: 0개=A, 1-2개=B, 3-4개=C, 5-6개=D, 7개+=F
+        if num_errors == 0: return "A"      # 완벽
+        elif num_errors <= 2: return "B"    # 1-2개 오류: B급 (기존 B, C급)
+        elif num_errors <= 4: return "C"    # 3-4개 오류: C급 (기존 D급)
+        elif num_errors <= 6: return "D"    # 5-6개 오류: D급 (기존 F급)
+        else: return "F"                    # 7개 이상: F급 (심각한 경우)
 
     def get_error_priority(self, error: str) -> str:
         """오류의 우선순위를 반환합니다."""
@@ -466,16 +484,16 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
 
         f.write("1. 런지 (Lunge) 종합 기준\n")
         f.write("-------------------------\n")
-        f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상\n")
-        f.write("- 측면 불안정성: 어깨/엉덩이 선이 수평에서 ±15도 이상 벗어남\n")
-        f.write("- 무릎 모임 (Knee Valgus): 앞 무릎이 엉덩이-발목 선보다 안쪽으로 25px 이상 들어옴\n")
-        f.write("- 과도한 무릎 전진: 앞 무릎이 발목보다 35px 이상 앞으로 나감\n\n")
-        f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상\n")
-        f.write("- 상체 숙여짐: 상체가 수직선 대비 25도 이상 기울어짐 (각도 65도 미만)\n")
-        f.write("- 부족한 깊이: 앞/뒤 무릎 각도가 115도를 넘음\n")
-        f.write("- 좁은 스탠스: 발목 간격이 어깨너비의 15% 미만\n\n")
-        f.write("레벨 3: 최적화 (Optimization) - 미세 조정\n")
-        f.write("- 앞발목 가동성 부족: 앞발목 각도가 90도를 넘음 (배측 굴곡 부족)\n\n")
+        f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상 (적당히 완화된 기준)\n")
+        f.write("- 측면 불안정성: 어깨/엉덩이 선이 수평에서 ±20도 이상 벗어남\n")
+        f.write("- 무릎 모임 (Knee Valgus): 앞 무릎이 엉덩이-발목 선보다 안쪽으로 30px 이상 들어옴\n")
+        f.write("- 과도한 무릎 전진: 앞 무릎이 발목보다 40px 이상 앞으로 나감\n\n")
+        f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상 (적당히 완화된 기준)\n")
+        f.write("- 상체 숙여짐: 상체가 수직선 대비 30도 이상 기울어짐 (각도 60도 미만)\n")
+        f.write("- 부족한 깊이: 앞/뒤 무릎 각도가 120도를 넘음\n")
+        f.write("- 좁은 스탠스: 발목 간격이 어깨너비의 20% 미만\n\n")
+        f.write("레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)\n")
+        f.write("- 앞발목 가동성 부족: 앞발목 각도가 95도를 넘음 (배측 굴곡 부족)\n\n")
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
@@ -569,11 +587,11 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     
     print(f"런지 분석을 시작합니다. {duration_seconds}초간 카메라가 켜집니다.")
     print("TTS 피드백이 실시간으로 제공됩니다!")
-    print("런지 동작을 시작하세요!")
+    print("운동 자세를 잡아주세요!")
     print("종료하려면 'q'를 누르세요.")
     
     # 시작 안내 메시지
-    tts_manager.add_feedback("시작", "encouragement")
+    tts_manager.add_feedback("운동 자세를 잡아주세요!", "encouragement")
     
     while cap.isOpened():
         try:

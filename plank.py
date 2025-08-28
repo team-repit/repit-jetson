@@ -539,11 +539,11 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     
     print(f"플랭크 분석을 시작합니다. {duration_seconds}초간 카메라가 켜집니다.")
     print("TTS 피드백이 실시간으로 제공됩니다!")
-    print("플랭크 자세를 취하세요!")
+    print("운동 자세를 잡아주세요!")
     print("종료하려면 'q'를 누르세요.")
     
     # 시작 안내 메시지
-    tts_manager.add_feedback("시작", "encouragement")
+    tts_manager.add_feedback("운동 자세를 잡아주세요!", "encouragement")
     
     while cap.isOpened():
         try:
