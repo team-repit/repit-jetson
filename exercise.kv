@@ -1,0 +1,160 @@
+#:kivy 2.1.0
+
+<MainLayout>:
+    # id를 통해 파이썬 코드에서 위젯에 접근
+    camera_view: camera_view
+    status_label: status_label
+    result_text: result_text
+    timer_label: timer_label
+    start_button: start_button
+    stop_button: stop_button
+    duration_input: duration_input
+
+    orientation: 'horizontal'
+    padding: 10
+    spacing: 10
+
+    # 왼쪽 패널
+    BoxLayout:
+        id: left_panel
+        orientation: 'vertical'
+        size_hint_x: 0.3
+        spacing: 10
+
+        canvas.before:
+            Color:
+                rgba: 0.9, 0.9, 0.9, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        Label:
+            text: '운동 선택'
+            size_hint_y: None
+            height: 40
+            font_size: '18sp'
+            bold: True
+            color: 0.2, 0.2, 0.2, 1
+        
+        ToggleButton:
+            text: 'SQUAT'
+            group: 'exercise'
+            on_press: root.select_exercise('squat') if self.state == 'down' else None
+            font_size: '16sp'
+            size_hint_y: None
+            height: 60
+        
+        ToggleButton:
+            text: 'LUNGE'
+            group: 'exercise'
+            on_press: root.select_exercise('lunge') if self.state == 'down' else None
+            font_size: '16sp'
+            size_hint_y: None
+            height: 60
+
+        ToggleButton:
+            text: 'PLANK'
+            group: 'exercise'
+            on_press: root.select_exercise('plank') if self.state == 'down' else None
+            font_size: '16sp'
+            size_hint_y: None
+            height: 60
+
+        Label:
+            text: '분석 설정'
+            size_hint_y: None
+            height: 40
+            font_size: '18sp'
+            bold: True
+            color: 0.2, 0.2, 0.2, 1
+        
+        BoxLayout:
+            size_hint_y: None
+            height: 40
+            Label:
+                text: '분석 시간(초):'
+            TextInput:
+                id: duration_input
+                text: '60'
+                multiline: False
+                input_filter: 'int'
+
+        Label:
+            text: '분석 제어'
+            size_hint_y: None
+            height: 40
+            font_size: '18sp'
+            bold: True
+            color: 0.2, 0.2, 0.2, 1
+
+        Button:
+            id: start_button
+            text: '분석 시작'
+            on_press: root.start_analysis()
+            disabled: root.is_analyzing
+            size_hint_y: None
+            height: 60
+            font_size: '16sp'
+            background_color: (0.2, 0.6, 0.2, 1) if not self.disabled else (0.5, 0.5, 0.5, 1)
+
+        Button:
+            id: stop_button
+            text: '분석 중지'
+            on_press: root.stop_analysis()
+            disabled: not root.is_analyzing
+            size_hint_y: None
+            height: 60
+            font_size: '16sp'
+            background_color: (0.8, 0.2, 0.2, 1) if not self.disabled else (0.5, 0.5, 0.5, 1)
+
+        Label:
+            id: timer_label
+            text: '경과 시간: 0초'
+            font_size: '16sp'
+            bold: True
+        
+        Label:
+            id: status_label
+            text: '대기 중...'
+            font_size: '14sp'
+
+        BoxLayout:
+            # 남은 공간 채우기
+            size_hint_y: 1
+    
+    # 오른쪽 패널
+    BoxLayout:
+        id: right_panel
+        orientation: 'vertical'
+        size_hint_x: 0.7
+        spacing: 10
+        
+        Label:
+            text: '실시간 카메라'
+            size_hint_y: None
+            height: 40
+            font_size: '18sp'
+            bold: True
+        
+        Image:
+            id: camera_view
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+
+        Label:
+            text: '분석 결과'
+            size_hint_y: None
+            height: 40
+            font_size: '18sp'
+            bold: True
+
+        ScrollView:
+            size_hint_y: 0.4
+            TextInput:
+                id: result_text
+                readonly: True
+                font_size: '12sp'
