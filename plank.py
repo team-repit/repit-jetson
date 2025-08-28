@@ -37,13 +37,19 @@ class UniversalTTS:
         
         self.feedback_thread.start()
         
-        # 피드백 메시지 매핑
+        # 피드백 메시지 매핑 (친근하고 구체적인 안내)
         self.feedback_messages = {
             "엉덩이 처짐": "엉덩이를 들어올리세요. 허리가 꺾이지 않도록 주의하세요.",
             "엉덩이 솟음": "엉덩이를 너무 높이 들지 마세요. 몸을 일직선으로 유지하세요.",
             "고개 정렬 불량": "고개를 똑바로 유지하세요. 목이 꺾이지 않도록 하세요.",
             "팔꿈치 정렬 불량": "팔꿈치를 어깨 바로 아래에 위치시키세요.",
-            "무릎 굽힘": "다리를 펴고 긴장을 유지하세요."
+            "무릎 굽힘": "다리를 펴고 긴장을 유지하세요.",
+            # 추가적인 친근한 메시지들
+            "허리 처짐": "허리를 펴고 코어에 힘을 주세요. 일직선을 유지하세요.",
+            "어깨 긴장": "어깨에 힘을 빼고 자연스럽게 유지하세요.",
+            "발목 각도": "발목을 자연스럽게 펴고 긴장을 유지하세요.",
+            "팔 위치": "팔을 어깨 너비만큼 벌리고 안정적으로 지탱하세요.",
+            "호흡": "자연스럽게 호흡하면서 자세를 유지하세요."
         }
     
     def _detect_platform(self):
@@ -220,8 +226,13 @@ class UniversalTTS:
             if error_type != priority_errors[0]:  # 우선순위 1위만
                 return False
         
-        # 피드백 메시지 가져오기
-        message = self.feedback_messages.get(error_type, f"{error_type}을 수정하세요.")
+        # 피드백 메시지 가져오기 (친근한 메시지 우선 사용)
+        message = self.feedback_messages.get(error_type, "")
+        
+        # 이상한 메시지 방지 (error_type이 한글이 아닌 경우)
+        if not message:
+            # 기본적인 친근한 메시지로 대체
+            message = "운동 자세를 잡아주세요."
         
         # 피드백 큐에 추가
         self.feedback_queue.put((message, priority))

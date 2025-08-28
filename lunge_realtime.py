@@ -51,15 +51,15 @@ class UniversalTTS:
         
         self.feedback_thread.start()
         
-        # 피드백 메시지 매핑
+        # 피드백 메시지 매핑 (친근하고 구체적인 안내)
         self.feedback_messages = {
             "좌우 흔들림": "몸이 좌우로 흔들리고 있어요. 중심을 잡고 똑바로 서세요.",
-            "무릎이 안으로": "앞 무릎이 안쪽을 향하고 있어요. 무릎을 발가락 방향으로 맞춰주세요.",
-            "무릎이 너무 앞으로": "무릎이 발끝보다 앞으로 나갔어요. 무릎을 조금 뒤로 빼세요.",
-            "등이 구부러짐": "등이 구부러져 있어요. 가슴을 쭉 펴세요.",
-            "너무 얕게 앉음": "뒷다리 무릎이 바닥에 가까워질 때까지 더 깊이 내려가세요.",
-            "발이 너무 가까움": "발 사이가 너무 좁아요. 어깨 넓이만큼 벌려주세요.",
-            "발목이 딱딱함": "앞발목이 굽어지지 않고 있어요. 발목을 앞으로 더 굽혀보세요."
+            "무릎 모임": "앞 무릎이 안쪽으로 무너지고 있어요. 무릎을 발끝 방향으로 맞춰주세요.",
+            "과도한 무릎 전진": "무릎이 너무 앞으로 나갔어요. 무릎을 조금 뒤로 빼세요.",
+            "상체 숙여짐": "상체가 너무 앞으로 숙여져 있어요. 가슴을 펴고 일어나세요.",
+            "부족한 깊이": "더 깊게 내려가세요. 근육을 충분히 활성화하세요.",
+            "좁은 스탠스": "발을 어깨너비만큼 벌리세요. 안정적인 자세를 유지하세요.",
+            "앞발목 가동성 부족": "앞발목을 더 굽혀보세요. 가동성을 높이세요."
         }
     
     def _detect_platform(self):
@@ -236,8 +236,13 @@ class UniversalTTS:
             if error_type != priority_errors[0]:  # 우선순위 1위만
                 return False
         
-        # 피드백 메시지 가져오기
-        message = self.feedback_messages.get(error_type, f"{error_type}을 수정하세요.")
+        # 피드백 메시지 가져오기 (친근한 메시지 우선 사용)
+        message = self.feedback_messages.get(error_type, "")
+        
+        # 이상한 메시지 방지 (error_type이 한글이 아닌 경우)
+        if not message:
+            # 기본적인 친근한 메시지로 대체
+            message = "운동 자세를 잡아주세요."
         
         # 피드백 큐에 추가
         self.feedback_queue.put((message, priority))
@@ -377,7 +382,7 @@ class ComprehensiveLungeGrader:
         shoulder_angle_with_horizontal = calculate_angle(landmarks['right_shoulder'], landmarks['left_shoulder'], [landmarks['left_shoulder'][0] + 100, landmarks['left_shoulder'][1]])
         hip_angle_with_horizontal = calculate_angle(landmarks['right_hip'], landmarks['left_hip'], [landmarks['left_hip'][0] + 100, landmarks['left_hip'][1]])
         if not (160 <= shoulder_angle_with_horizontal <= 200) or not (160 <= hip_angle_with_horizontal <= 200):
-            errors.append("측면 불안정성")
+            errors.append("좌우 흔들림")
 
         # 1-2. 무릎 모임 (기존 25px -> 30px로 완화)
         if front_leg == 'left':

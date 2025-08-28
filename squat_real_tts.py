@@ -51,7 +51,7 @@ class UniversalTTS:
 
         self.feedback_thread.start()
 
-        # 피드백 메시지 매핑
+        # 피드백 메시지 매핑 (친근하고 구체적인 안내)
         self.feedback_messages = {
             "허리 말림": "허리를 펴세요. 엉덩이가 안으로 말리지 않도록 주의하세요.",
             "무릎 모임": "무릎이 발끝 방향을 향하도록 하세요. 안쪽으로 무너지지 마세요.",
@@ -60,7 +60,12 @@ class UniversalTTS:
             "뒤꿈치 들림": "뒤꿈치를 바닥에 붙이세요. 무게중심이 앞으로 쏠리지 않도록 하세요.",
             "골반 치우침": "골반을 중앙에 유지하세요. 좌우로 치우치지 마세요.",
             "깊이 부족": "더 깊게 앉으세요. 허벅지가 지면과 평행이 될 때까지.",
-            "발목 가동성 부족": "발목을 더 굽혀보세요. 가동성을 높이세요."
+            "발목 가동성 부족": "발목을 더 굽혀보세요. 가동성을 높이세요.",
+            # 추가적인 친근한 메시지들
+            "측면 불안정성": "몸이 좌우로 기울어지고 있어요. 중심을 잡고 똑바로 서세요.",
+            "과도한 상체 숙임": "상체가 너무 앞으로 숙여져 있어요. 가슴을 펴고 일어나세요.",
+            "무릎 과신전": "무릎이 너무 앞으로 나갔어요. 무릎을 조금 뒤로 빼세요.",
+            "발 간격 부족": "발 사이 간격을 어깨너비만큼 벌려주세요. 안정감을 높이세요."
         }
 
     def _detect_platform(self):
@@ -407,8 +412,13 @@ class UniversalTTS:
             if error_type != priority_errors[0]:  # 우선순위 1위만
                 return False
 
-        # 피드백 메시지 가져오기
-        message = self.feedback_messages.get(error_type, f"{error_type}을 수정하세요.")
+        # 피드백 메시지 가져오기 (친근한 메시지 우선 사용)
+        message = self.feedback_messages.get(error_type, "")
+        
+        # 이상한 메시지 방지 (error_type이 한글이 아닌 경우)
+        if not message:
+            # 기본적인 친근한 메시지로 대체
+            message = "운동 자세를 잡아주세요."
 
         # 피드백 큐에 추가
         self.feedback_queue.put((message, priority))
@@ -425,7 +435,11 @@ class UniversalTTS:
             return "완벽한 자세입니다!"
 
         if len(errors) == 1:
-            return self.feedback_messages.get(errors[0], f"{errors[0]}을 수정하세요.")
+            message = self.feedback_messages.get(errors[0], "")
+            if message:
+                return message
+            else:
+                return "운동 자세를 잡아주세요."
 
         # 2개 이상일 때는 우선순위 기반 요약
         priority_errors = self.get_priority_order(errors)
