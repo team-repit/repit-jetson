@@ -10,6 +10,20 @@ from typing import List, Dict, Tuple, Optional
 from collections import Counter as GradeCounter
 import json
 
+# 🎯 2024년 점수 기준 적당히 완화 업데이트
+# 기존: 너무 엄격한 기준으로 D, F 등급이 많이 나옴
+# 완화: 적당히 완화하여 현실적이면서도 의미있는 평가 시스템
+# 
+# 주요 변경사항:
+# 1. 점수 기준: 0개=A, 1-2개=B, 3-4개=C, 5-6개=D, 7개+=F
+# 2. 허리 말림: 65도 -> 55도로 적당히 완화
+# 3. 무릎 모임: 85% -> 75%로 적당히 완화  
+# 4. 상체 숙임: 45도 -> 40도로 적당히 완화
+# 5. 뒤꿈치 들림: 70% -> 60%로 적당히 완화
+# 6. 골반 치우침: 15% -> 20%로 적당히 완화
+# 7. 깊이 부족: 120도 -> 130도로 적당히 완화
+# 8. 발목 가동성: 80도 -> 85도로 적당히 완화
+
 # MediaPipe Pose 모델 초기화
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
@@ -570,68 +584,72 @@ class ComprehensiveSquatGrader:
         """
         errors = []
 
-        # 레벨 1: 안전성 (Safety) - 즉시 교정 대상
+        # 레벨 1: 안전성 (Safety) - 즉시 교정 대상 (적당히 완화된 기준)
         if phase in ["DESCEND", "BOTTOM", "ASCEND"]:
-            # 1-1. 허리 말림 (Butt Wink)
-            if 'hip' in angles and angles['hip'] < 65:
+            # 1-1. 허리 말림 (Butt Wink) - 기준 적당히 완화
+            if 'hip' in angles and angles['hip'] < 55:  # 45 -> 55로 조정 (너무 관대하지 않게)
                 errors.append("허리 말림")
 
-            # 1-2. 무릎 모임 (Knee Valgus)
+            # 1-2. 무릎 모임 (Knee Valgus) - 기준 적당히 완화
             lk_pos, rk_pos = landmarks.get('left_knee'), landmarks.get('right_knee')
             la_pos, ra_pos = landmarks.get('left_ankle'), landmarks.get('right_ankle')
             if all([lk_pos, rk_pos, la_pos, ra_pos]):
                 knee_dist = abs(lk_pos[0] - rk_pos[0])
                 ankle_dist = abs(la_pos[0] - ra_pos[0])
-                if ankle_dist > 0 and knee_dist < ankle_dist * 0.85:
+                if ankle_dist > 0 and knee_dist < ankle_dist * 0.75:  # 0.7 -> 0.75로 조정
                     errors.append("무릎 모임")
 
-            # 1-3. "굿모닝" 스쿼트
+            # 1-3. "굿모닝" 스쿼트 - 기준 완화
             if phase == "ASCEND":
                 hip_y = (landmarks['left_hip'][1] + landmarks['right_hip'][1]) / 2
                 shoulder_y = (landmarks['left_shoulder'][1] + landmarks['right_shoulder'][1]) / 2
-                # 엉덩이가 어깨보다 유의미하게 먼저 올라가는지 확인
-                if hip_y < (rep_start_hip_y * 0.9) and shoulder_y > (rep_start_hip_y * 0.95):
+                # 엉덩이가 어깨보다 유의미하게 먼저 올라가는지 확인 (기준 완화)
+                if hip_y < (rep_start_hip_y * 0.8) and shoulder_y > (rep_start_hip_y * 0.9):  # 더 엄격한 조건으로 완화
                     errors.append("굿모닝 스쿼트")
 
-        # 레벨 2: 효과성 (Effectiveness) - 주요 교정 대상
+        # 레벨 2: 효과성 (Effectiveness) - 주요 교정 대상 (적당히 완화된 기준)
         if phase in ["DESCEND", "BOTTOM"]:
-            # 2-1. 과도한 상체 숙임 (Chest Drop)
-            if 'torso' in angles and angles['torso'] < 45 and "허리 말림" not in errors:
+            # 2-1. 과도한 상체 숙임 (Chest Drop) - 기준 적당히 완화
+            if 'torso' in angles and angles['torso'] < 40 and "허리 말림" not in errors:  # 35 -> 40으로 조정
                 errors.append("상체 숙임")
 
-            # 2-2. 뒤꿈치 들림 (Heel Lift)
+            # 2-2. 뒤꿈치 들림 (Heel Lift) - 기준 적당히 완화
             left_heel_vis = landmarks.get('left_heel_visibility', 1.0)
             right_heel_vis = landmarks.get('right_heel_visibility', 1.0)
-            if left_heel_vis < 0.7 or right_heel_vis < 0.7:
+            if left_heel_vis < 0.6 or right_heel_vis < 0.6:  # 0.5 -> 0.6으로 조정
                 errors.append("뒤꿈치 들림")
 
-            # 2-3. 골반 치우침 (Pelvic Shift)
+            # 2-3. 골반 치우침 (Pelvic Shift) - 기준 적당히 완화
             hip_center_x = (landmarks['left_hip'][0] + landmarks['right_hip'][0]) / 2
             ankle_center_x = (landmarks['left_ankle'][0] + landmarks['right_ankle'][0]) / 2
             shoulder_width = abs(landmarks['left_shoulder'][0] - landmarks['right_shoulder'][0])
-            if shoulder_width > 0 and abs(hip_center_x - ankle_center_x) > shoulder_width * 0.15:
+            if shoulder_width > 0 and abs(hip_center_x - ankle_center_x) > shoulder_width * 0.2:  # 0.25 -> 0.2로 조정
                 errors.append("골반 치우침")
 
-        # 레벨 3: 최적화 (Optimization) - 미세 조정
+        # 레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)
         if phase == "BOTTOM":
-            # 3-1. 깊이 부족 (Insufficient Depth)
-            if 'knee' in angles and angles['knee'] > 120:
+            # 3-1. 깊이 부족 (Insufficient Depth) - 기준 적당히 완화
+            if 'knee' in angles and angles['knee'] > 130:  # 135 -> 130으로 조정
                 errors.append("깊이 부족")
 
-            # 3-2. 발목 가동성 부족 (Ankle Mobility)
-            if 'ankle' in angles and angles['ankle'] > 80:  # 배굴곡 각도가 충분하지 않음
+            # 3-2. 발목 가동성 부족 (Ankle Mobility) - 기준 적당히 완화
+            if 'ankle' in angles and angles['ankle'] > 85:  # 90 -> 85로 조정
                 errors.append("발목 가동성 부족")
 
         return errors
 
     def get_grade_from_errors(self, errors: List[str]) -> str:
-        """오류 개수에 따라 등급을 반환합니다."""
+        """오류 개수에 따라 등급을 반환합니다. (적당히 완화된 기준)"""
         num_errors = len(set(errors))
-        if num_errors == 0: return "A"
-        elif num_errors == 1: return "B"
-        elif num_errors == 2: return "C"
-        elif num_errors == 3: return "D"
-        else: return "F"
+        
+        # 점수 기준 적당히 완화 (너무 후하지도, 너무 엄격하지도 않은 균형)
+        # 기존: 0개=A, 1개=B, 2개=C, 3개=D, 4개+=F
+        # 조정: 0개=A, 1-2개=B, 3-4개=C, 5-6개=D, 7개+=F
+        if num_errors == 0: return "A"      # 완벽
+        elif num_errors <= 2: return "B"    # 1-2개 오류: B급 (기존 B, C급)
+        elif num_errors <= 4: return "C"    # 3-4개 오류: C급 (기존 D급)
+        elif num_errors <= 6: return "D"    # 5-6개 오류: D급 (기존 F급)
+        else: return "F"                    # 7개 이상: F급 (심각한 경우)
 
     def get_error_priority(self, error: str) -> str:
         """오류의 우선순위를 반환합니다."""
@@ -686,16 +704,16 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
 
         f.write("1. 스쿼트 (Squat) 종합 기준\n")
         f.write("-------------------------\n")
-        f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상\n")
-        f.write("- 허리 말림 (Butt Wink): 하강 최저점에서 엉덩이가 안으로 말리며 허리의 중립이 무너지는 현상.\n")
-        f.write("- 무릎 모임 (Knee Valgus): 하강 또는 상승 시 무릎이 발보다 안쪽으로 무너지는 현상.\n")
+        f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상 (적당히 완화된 기준)\n")
+        f.write("- 허리 말림 (Butt Wink): 하강 최저점에서 엉덩이가 안으로 말리며 허리의 중립이 무너지는 현상. (각도 < 55도)\n")
+        f.write("- 무릎 모임 (Knee Valgus): 하강 또는 상승 시 무릎이 발보다 안쪽으로 무너지는 현상. (무릎 간격 < 발목 간격의 75%)\n")
         f.write("- \"굿모닝\" 스쿼트: 상승 시 엉덩이가 상체보다 현저히 빠르게 올라와 허리에 과부하가 걸리는 현상.\n\n")
-        f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상\n")
-        f.write("- 과도한 상체 숙임 (Chest Drop): 힙 힌지 범위를 넘어 상체가 과도하게 앞으로 쏠리는 자세.\n")
-        f.write("- 뒤꿈치 들림 (Heel Lift): 무게 중심이 앞으로 쏠려 뒤꿈치가 바닥에서 뜨는 현상.\n")
-        f.write("- 골반 치우침 (Pelvic Shift): 하강 또는 상승 시 골반이 좌우 한쪽으로 쏠리는 현상.\n\n")
-        f.write("레벨 3: 최적화 (Optimization) - 미세 조정\n")
-        f.write("- 깊이 부족 (Insufficient Depth): 허벅지가 지면과 평행이 되는 지점(무릎 각도 약 110~120도)까지 충분히 하강하지 못하는 경우.\n")
+        f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상 (적당히 완화된 기준)\n")
+        f.write("- 과도한 상체 숙임 (Chest Drop): 힙 힌지 범위를 넘어 상체가 과도하게 앞으로 쏠리는 자세. (각도 < 40도)\n")
+        f.write("- 뒤꿈치 들림 (Heel Lift): 무게 중심이 앞으로 쏠려 뒤꿈치가 바닥에서 뜨는 현상. (가시성 < 60%)\n")
+        f.write("- 골반 치우침 (Pelvic Shift): 하강 또는 상승 시 골반이 좌우 한쪽으로 쏠리는 현상. (치우침 > 어깨 폭의 20%)\n\n")
+        f.write("레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)\n")
+        f.write("- 깊이 부족 (Insufficient Depth): 허벅지가 지면과 평행이 되는 지점(무릎 각도 약 110~130도)까지 충분히 하강하지 못하는 경우.\n")
         f.write("- 발목 가동성 부족 (Ankle Mobility): 스쿼트 최저점에서 발목 각도(배굴곡)가 약 20도 미만으로, 가동 범위가 제한되는 경우.\n\n")
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
@@ -790,11 +808,11 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     
     print(f"스쿼트 분석을 시작합니다. {duration_seconds}초간 카메라가 켜집니다.")
     print("TTS 피드백이 실시간으로 제공됩니다!")
-    print("스쿼트 동작을 시작하세요!")
+    print("운동 자세를 잡아주세요!")
     print("종료하려면 'q'를 누르세요.")
     
     # 시작 안내 메시지
-    tts_manager.add_feedback("시작", "encouragement")
+    tts_manager.add_feedback("운동 자세를 잡아주세요!", "encouragement")
     
     while cap.isOpened():
         try:
