@@ -1,0 +1,36 @@
+# PySide6 스쿼트 분석 애플리케이션 의존성 - 젯슨 ARM64 최적화
+# Jetson Nano/Xavier/Orin에서 실행 가능한 패키지들
+
+# GUI 프레임워크 (젯슨 ARM64 호환성 우수, PyQt5보다 안정적)
+PySide6>=6.5.0
+
+# 컴퓨터 비전 (ARM64 최적화)
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+
+# 기본 수치 연산 (ARM64 성능 최적화)
+numpy>=1.21.0
+
+# 이미지 처리
+pillow>=8.0.0
+
+# TTS 및 오디오 처리
+gtts>=2.4.0
+pydub>=0.25.0
+
+# 젯슨 설치 가이드:
+# 1. 가상환경 생성: python3 -m venv app-env-pyside6
+# 2. 활성화: source app-env-pyside6/bin/activate  
+# 3. 설치: pip install -r requirements_pyside6.txt
+# 4. 실행: ./run_app_pyside6.sh
+
+# 시스템 의존성 (필요시):
+# sudo apt update
+# sudo apt install python3-dev python3-pip
+# sudo apt install libqt6-core6 libqt6-gui6 libqt6-widgets6
+
+# PySide6 vs PyQt5 젯슨 장점:
+# - 공식 Qt 바인딩 (Qt Company 직접 개발)
+# - ARM64 호환성 우수
+# - 메모리 사용량 최적화
+# - 젯슨 GPU 가속 지원 
