@@ -10,22 +10,44 @@ from typing import List, Dict, Tuple, Optional
 from collections import Counter as GradeCounter
 import json
 
+# Qt 스레딩 지원 추가
+try:
+    from PySide6.QtCore import QThread, Signal, QObject
+    QT_AVAILABLE = True
+except ImportError:
+    try:
+        from PyQt5.QtCore import QThread, pyqtSignal as Signal, QObject
+        QT_AVAILABLE = True
+    except ImportError:
+        QT_AVAILABLE = False
+
 # MediaPipe Pose 모델 초기화
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 mp_drawing = mp.solutions.drawing_utils
 
-class UniversalTTS:
-    """모든 플랫폼에서 작동하는 TTS 시스템 (하이브리드 접근법)"""
+class UniversalTTS(QObject if QT_AVAILABLE else object):
+    """모든 플랫폼에서 작동하는 TTS 시스템 (Qt 호환)"""
+    
+    if QT_AVAILABLE:
+        feedback_ready = Signal(str, str)  # 메시지, 우선순위
+        status_updated = Signal(str)
     
     def __init__(self):
+        if QT_AVAILABLE:
+            super().__init__()
         self.feedback_queue = queue.Queue()
         self.last_feedback_time = {}  # 각 오류별 마지막 피드백 시간
         self.feedback_cooldown = 3.0  # 같은 오류에 대한 피드백 쿨다운 (초)
         self.min_feedback_interval = 2.0  # 최소 피드백 간격 (초)
         self.last_general_feedback = 0  # 마지막 일반 피드백 시간
         self.running = True
-        self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
+        
+        # Qt가 사용 가능한 경우 QThread 사용, 그렇지 않으면 일반 Thread 사용
+        if QT_AVAILABLE:
+            self.feedback_thread = None  # QThread로 관리됨
+        else:
+            self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
         
         # 플랫폼별 TTS 설정
         self.platform = self._detect_platform()
@@ -35,7 +57,14 @@ class UniversalTTS:
         if self.platform == "Jetson":
             self._check_jetson_tts_tools()
         
-        self.feedback_thread.start()
+        # 피드백 스레드 시작 (Qt가 아닌 경우에만)
+        if not QT_AVAILABLE:
+            self.feedback_thread.start()
+        else:
+            # Qt 환경에서는 별도 스레드에서 피드백 워커 시작
+            import threading
+            self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
+            self.feedback_thread.start()
         
         # 피드백 메시지 매핑 (친근하고 구체적인 안내)
         self.feedback_messages = {
@@ -105,12 +134,20 @@ class UniversalTTS:
                 feedback_data = self.feedback_queue.get(timeout=1.0)
                 if feedback_data:
                     message, priority = feedback_data
-                    self._speak_feedback(message, priority)
+                    # Qt가 사용 가능한 경우 시그널로 전달, 그렇지 않으면 직접 처리
+                    if QT_AVAILABLE:
+                        self.feedback_ready.emit(message, priority)
+                    else:
+                        self._speak_feedback(message, priority)
                 self.feedback_queue.task_done()
             except queue.Empty:
                 continue
             except Exception as e:
                 print(f"TTS 피드백 오류: {e}")
+    
+    def process_feedback(self, message, priority):
+        """Qt 시그널에서 호출되는 메서드 - 메인 스레드에서 실행됨"""
+        self._speak_feedback(message, priority)
     
     def _speak_feedback(self, message: str, priority: str):
         """플랫폼별 TTS 사용"""
@@ -281,7 +318,8 @@ class UniversalTTS:
     def stop(self):
         """TTS 매니저 정리"""
         self.running = False
-        self.feedback_thread.join(timeout=1.0)
+        if self.feedback_thread and not QT_AVAILABLE:
+            self.feedback_thread.join(timeout=1.0)
 
     def _check_jetson_tts_tools(self):
         """젯슨에서 필요한 TTS 도구들이 설치되어 있는지 확인하고 안내"""
