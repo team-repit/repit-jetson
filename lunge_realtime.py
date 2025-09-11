@@ -541,12 +541,14 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
 # def run_lunge_analysis(duration_seconds=120, stop_callback=None):
-def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=None):
+def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=None, is_gui_mode=False):
     """실시간 카메라를 통한 런지 분석 함수 (TTS 피드백 포함)
     
     Args:
         duration_seconds (int): 분석할 시간 (초), 기본값 120초 (2분)
         stop_callback (callable): 분석 중지 여부를 확인하는 콜백 함수
+        frame_callback (callable): 프레임 처리 콜백 함수
+        is_gui_mode (bool): GUI 모드 여부 (PySide6 환경에서는 True)
     """
     
     # 중지 플래그 초기화
@@ -825,8 +827,8 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
             except:
                 pass
         
-        # 젯슨에서만 스켈레톤 표시
-        if is_jetson:
+        # OpenCV 창 표시 (GUI 모드가 아닐 때만)
+        if not is_gui_mode:
             try:
                 cv2.namedWindow('Real-time Lunge Analysis with TTS', cv2.WINDOW_NORMAL)
                 cv2.resizeWindow('Real-time Lunge Analysis with TTS', 1280, 720)
