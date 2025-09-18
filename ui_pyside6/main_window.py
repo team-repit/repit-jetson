@@ -31,21 +31,20 @@ except:
     pass
 
 class TTSManager(QObject):
-    """TTS 관리를 위한 Qt 객체"""
+    """TTS 관리를 위한 Qt 객체 - 젯슨 안정성 강화"""
     feedback_ready = Signal(str, str)  # 메시지, 우선순위
     
     def __init__(self, exercise_type):
         super().__init__()
         self.exercise_type = exercise_type
         self.tts_worker = None
-        self.tts_thread = None
         self.feedback_timer = None
         self.setup_tts()
     
     def setup_tts(self):
-        """TTS 워커와 스레드 설정"""
+        """TTS 워커 설정 - 시그널 없이 직접 사용"""
         try:
-            # UniversalTTS import 및 생성
+            # UniversalTTS import 및 생성 (메인 스레드에서 직접 생성)
             if self.exercise_type == "squat":
                 from squat_real_tts import UniversalTTS
             elif self.exercise_type == "lunge":
@@ -55,84 +54,27 @@ class TTSManager(QObject):
             else:
                 return
             
+            # 메인 스레드에서 직접 생성 (시그널 사용 안 함)
             self.tts_worker = UniversalTTS()
-            self.tts_thread = QThread()
-            self.tts_worker.moveToThread(self.tts_thread)
             
-            # 시그널 연결 - UniversalTTS가 직접 시그널을 emit하므로 직접 연결
-            # QThread로 이동된 객체의 시그널은 Qt.QueuedConnection으로 연결해야 함
-            self.tts_worker.feedback_ready.connect(self.feedback_ready.emit, Qt.QueuedConnection)
-            print("[DEBUG] TTS 시그널 연결 완료")
-            
-            # 직접 process_feedback을 호출하는 방법도 추가
-            self.tts_worker.feedback_ready.connect(self._handle_tts_feedback, Qt.QueuedConnection)
-            
-            # QThread 시작
-            self.tts_thread.start()
-            print("[DEBUG] TTS 스레드 시작됨")
-            
-            # 피드백 워커 시작
+            # 피드백 워커 시작 (시그널 없이 직접 처리)
             self.start_feedback_worker()
             
-            print("[DEBUG] TTS 매니저 설정 완료")
+            print("[DEBUG] TTS 매니저 설정 완료 (시그널 없이)")
         except Exception as e:
             print(f"TTS 설정 오류: {e}")
     
-    def _handle_tts_feedback(self, message, priority):
-        """TTS 피드백을 직접 처리하는 메서드"""
-        print(f"[DEBUG] _handle_tts_feedback 호출됨: {message} ({priority})")
-        try:
-            # 직접 process_feedback 호출
-            if self.tts_worker:
-                print("[DEBUG] process_feedback 직접 호출 중...")
-                self.tts_worker.process_feedback(message, priority)
-        except Exception as e:
-            print(f"TTS 피드백 직접 처리 오류: {e}")
-    
     def start_feedback_worker(self):
-        """TTS 피드백 워커를 시작하는 메서드"""
-        print("[DEBUG] start_feedback_worker 호출됨")
-        try:
-            if self.tts_worker:
-                print("[DEBUG] TTS 워커에서 직접 피드백 처리 시작...")
-                # QTimer를 사용해서 주기적으로 피드백 큐를 확인
-                from PySide6.QtCore import QTimer
-                self.feedback_timer = QTimer()
-                self.feedback_timer.timeout.connect(self._process_feedback_queue)
-                self.feedback_timer.start(100)  # 100ms마다 체크
-        except Exception as e:
-            print(f"피드백 워커 시작 오류: {e}")
-    
-    def _process_feedback_queue(self):
-        """피드백 큐를 주기적으로 확인하여 처리"""
-        try:
-            if self.tts_worker and hasattr(self.tts_worker, 'feedback_queue'):
-                # 큐가 비어있지 않으면 처리
-                if not self.tts_worker.feedback_queue.empty():
-                    feedback_data = self.tts_worker.feedback_queue.get_nowait()
-                    if feedback_data:
-                        message, priority = feedback_data
-                        print(f"[DEBUG] 큐에서 피드백 처리: {message} ({priority})")
-                        self.tts_worker.process_feedback(message, priority)
-                        self.tts_worker.feedback_queue.task_done()
-        except Exception as e:
-            print(f"피드백 큐 처리 오류: {e}")
-        
-        # 다음 확인을 위해 타이머 재시작
-        if self.feedback_timer and self.feedback_timer.isActive():
-            self.feedback_timer.start(100)  # 100ms 후 다시 확인
+        """TTS 피드백 워커를 시작하는 메서드 - UniversalTTS가 자체적으로 처리"""
+        print("[DEBUG] TTS 워커가 자체적으로 피드백을 처리합니다")
+        # UniversalTTS가 자체적으로 피드백을 처리하므로 별도 작업 불필요
     
     def stop_tts(self):
-        """TTS 정리"""
+        """TTS 정리 - 메인 스레드에서 실행"""
         # TTS 워커 정리
         if self.tts_worker:
             self.tts_worker.running = False
             self.tts_worker.stop()
-        
-        # TTS 스레드 정리
-        if self.tts_thread and self.tts_thread.isRunning():
-            self.tts_thread.quit()
-            self.tts_thread.wait(3000)
 
 class ExerciseAnalyzerThread(QThread):
     """운동 분석을 위한 스레드 - 젯슨 ARM64 안정성 강화"""
@@ -180,7 +122,7 @@ class ExerciseAnalyzerThread(QThread):
                     # 함수가 존재하는지 확인
                     if hasattr(squat_module, 'run_squat_analysis'):
                         video_path, report_path = squat_module.run_squat_analysis(
-                            self.duration_seconds, self.should_stop, self.frame_callback
+                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True
                         )
                     else:
                         self.error_occurred.emit("분석 함수(run_squat_analysis)를 찾을 수 없습니다.")
@@ -211,7 +153,7 @@ class ExerciseAnalyzerThread(QThread):
                     # 함수가 존재하는지 확인 (스쿼트와 동일한 방식)
                     if hasattr(lunge_module, 'run_lunge_analysis'):
                         video_path, report_path = lunge_module.run_lunge_analysis(
-                            self.duration_seconds, self.should_stop, self.frame_callback
+                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True
                         )
                     else:
                         self.error_occurred.emit("분석 함수(run_lunge_analysis)를 찾을 수 없습니다.")
@@ -243,7 +185,7 @@ class ExerciseAnalyzerThread(QThread):
                     # 만약 함수 이름이 다르다면 이 부분을 수정해야 합니다.
                     if hasattr(plank_module, 'run_plank_analysis'):
                         video_path, report_path = plank_module.run_plank_analysis(
-                            self.duration_seconds, self.should_stop, self.frame_callback
+                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True
                         )
                     else:
                         self.error_occurred.emit("분석 함수(run_plank_analysis)를 찾을 수 없습니다.")
@@ -729,7 +671,7 @@ class MainWindow(QMainWindow):
 
             # TTS 매니저 생성 (메인 스레드에서)
             self.tts_manager = TTSManager(self.selected_exercise)
-            self.tts_manager.feedback_ready.connect(self.on_tts_feedback)
+            # TTS는 자체적으로 처리되므로 시그널 연결 불필요
             
             self.analyzer_thread.start()
 
@@ -819,27 +761,6 @@ class MainWindow(QMainWindow):
         self.elapsed_time += 1
         self.timer_label.setText(f"경과 시간: {self.elapsed_time}초")
     
-    def on_tts_feedback(self, message, priority):
-        """TTS 피드백 처리 - 메인 스레드에서 안전하게 실행됨"""
-        print(f"[DEBUG] on_tts_feedback 호출됨: {message} ({priority})")
-        try:
-            # TTS 피드백을 상태 라벨에 표시
-            if priority == "high":
-                self.status_label.setText(f"⚠️ {message}")
-            elif priority == "medium":
-                self.status_label.setText(f"💡 {message}")
-            else:
-                self.status_label.setText(f"📢 {message}")
-            
-            print(f"[TTS] {priority}: {message}")
-            # UniversalTTS에서 실제 TTS 실행
-            if hasattr(self, 'tts_manager') and self.tts_manager and self.tts_manager.tts_worker:
-                print("[DEBUG] process_feedback 호출 중...")
-                self.tts_manager.tts_worker.process_feedback(message, priority)
-            else:
-                print("[DEBUG] tts_manager 또는 tts_worker가 없음")
-        except Exception as e:
-            print(f"TTS 피드백 처리 오류: {e}")
 
     def closeEvent(self, event):
         """애플리케이션 종료 시 정리"""

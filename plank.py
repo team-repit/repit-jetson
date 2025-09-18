@@ -43,12 +43,6 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
         self.last_general_feedback = 0  # 마지막 일반 피드백 시간
         self.running = True
         
-        # Qt가 사용 가능한 경우 QThread 사용, 그렇지 않으면 일반 Thread 사용
-        if QT_AVAILABLE:
-            self.feedback_thread = None  # QThread로 관리됨
-        else:
-            self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
-        
         # 플랫폼별 TTS 설정
         self.platform = self._detect_platform()
         self.setup_tts()
@@ -57,12 +51,13 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
         if self.platform == "Jetson":
             self._check_jetson_tts_tools()
         
-        # 피드백 스레드 시작 (Qt가 아닌 경우에만)
-        if not QT_AVAILABLE:
+        # Qt 환경에서는 피드백 워커를 별도 스레드에서 시작 (시그널 사용 안 함)
+        if QT_AVAILABLE:
+            import threading
+            self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
             self.feedback_thread.start()
         else:
-            # Qt 환경에서는 별도 스레드에서 피드백 워커 시작
-            import threading
+            # Qt가 없는 환경에서는 일반 스레드 사용
             self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
             self.feedback_thread.start()
         
@@ -134,11 +129,8 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
                 feedback_data = self.feedback_queue.get(timeout=1.0)
                 if feedback_data:
                     message, priority = feedback_data
-                    # Qt가 사용 가능한 경우 시그널로 전달, 그렇지 않으면 직접 처리
-                    if QT_AVAILABLE:
-                        self.feedback_ready.emit(message, priority)
-                    else:
-                        self._speak_feedback(message, priority)
+                    # 직접 TTS 실행 (시그널 사용 안 함)
+                    self._speak_feedback(message, priority)
                 self.feedback_queue.task_done()
             except queue.Empty:
                 continue
@@ -195,35 +187,55 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             raise
     
     def _play_mp3_linux(self, mp3_file: str):
-        """Linux/젯슨에서 MP3 파일 재생"""
-        # 여러 MP3 플레이어 중 하나를 찾아서 사용
+        """Linux/젯슨에서 MP3 파일 재생 - 젯슨 최적화"""
+        # 젯슨에서 안정적인 오디오 재생을 위한 순서
         players = [
-            ('mpg123', ['mpg123', mp3_file]),
-            ('ffplay', ['ffplay', '-nodisp', '-autoexit', mp3_file]),
-            ('mpv', ['mpv', '--no-video', mp3_file]),
-            ('cvlc', ['cvlc', '--play-and-exit', mp3_file])
+            # 젯슨에서 가장 안정적인 방법들
+            ('aplay (WAV 변환)', self._convert_and_play_wav),
+            ('mpg123', ['mpg123', '-q', mp3_file]),  # -q 옵션으로 조용한 실행
+            ('ffplay', ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', mp3_file]),
+            ('mpv', ['mpv', '--no-video', '--no-terminal', mp3_file]),
+            ('cvlc', ['cvlc', '--intf', 'dummy', '--play-and-exit', mp3_file])
         ]
         
         for player_name, cmd in players:
             try:
-                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                print(f"MP3 재생: {player_name} 사용")
+                if callable(cmd):
+                    # WAV 변환 함수인 경우
+                    cmd(mp3_file)
+                else:
+                    # 일반 명령어인 경우
+                    result = subprocess.run(cmd, check=True, 
+                                          stdout=subprocess.DEVNULL, 
+                                          stderr=subprocess.DEVNULL,
+                                          timeout=10)  # 10초 타임아웃
+                print(f"MP3 재생 성공: {player_name} 사용")
                 return
-            except (subprocess.CalledProcessError, FileNotFoundError):
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+                print(f"{player_name} 실패: {e}")
                 continue
         
-        # MP3 플레이어가 없으면 WAV로 변환 후 재생
+        print("모든 MP3 재생 방법이 실패했습니다. 백업 TTS를 사용합니다.")
+        raise Exception("Linux에서 MP3 재생을 위한 도구가 없습니다")
+    
+    def _convert_and_play_wav(self, mp3_file: str):
+        """MP3를 WAV로 변환 후 aplay로 재생 - 젯슨에서 가장 안정적"""
         try:
             import pydub
             audio = pydub.AudioSegment.from_mp3(mp3_file)
             wav_file = mp3_file.replace('.mp3', '.wav')
             audio.export(wav_file, format="wav")
-            subprocess.run(['aplay', wav_file], check=True)
+            
+            # aplay로 재생 (젯슨에서 가장 안정적)
+            subprocess.run(['aplay', wav_file], check=True, timeout=10)
             os.remove(wav_file)
-            print("MP3를 WAV로 변환하여 재생")
+            print("MP3를 WAV로 변환하여 aplay로 재생")
         except ImportError:
             print("pydub가 설치되지 않아 MP3를 WAV로 변환할 수 없습니다")
-            raise Exception("Linux에서 MP3 재생을 위한 도구가 없습니다")
+            raise
+        except Exception as e:
+            print(f"WAV 변환 및 재생 실패: {e}")
+            raise
     
     def _speak_backup(self, message: str):
         """플랫폼별 백업 TTS"""
@@ -369,9 +381,15 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             print("sudo apt-get update")
             print("sudo apt-get install espeak")                      # espeak TTS
             print("sudo apt-get install mpg123")                      # MP3 재생
+            print("sudo apt-get install ffmpeg")                      # ffplay 지원
+            print("sudo apt-get install alsa-utils")                  # aplay 지원
             
             print("\n📦 Python 패키지:")
             print("pip install gtts pydub numpy")
+            
+            print("\n🔧 젯슨 오디오 설정 확인:")
+            print("aplay -l  # 오디오 장치 확인")
+            print("speaker-test -t wav  # 스피커 테스트")
         
         print("="*60 + "\n")
 
@@ -810,7 +828,7 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
             except Exception as e:
                 print(f"젯슨 OpenCV 창 오류: {e}")
         else:
-            # macOS 등에서는 GUI 없이 실행
+            # GUI 모드에서는 OpenCV 창을 생성하지 않음 (PySide6와 충돌 방지)
             time.sleep(0.01)  # 10ms 대기
         
         # 시간 기반 종료 조건 (예: 5초마다 상태 출력)
