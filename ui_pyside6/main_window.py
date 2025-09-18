@@ -282,14 +282,17 @@ class CameraThread(QThread):
                     self.error_occurred.emit("카메라를 열 수 없습니다.")
                     return
 
-            # 젯슨 최적화 카메라 설정
+            # 젯슨 최적화 카메라 설정 (딜레이 최소화)
             try:
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                self.cap.set(cv2.CAP_PROP_FPS, 30)
+                self.cap.set(cv2.CAP_PROP_FPS, 15)  # 30 -> 15로 낮춰서 딜레이 감소
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 버퍼 크기 최소화
                 # 젯슨 특화 설정
                 self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+                # 추가 딜레이 최소화 설정
+                self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # 자동 포커스 비활성화
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # 자동 노출 최소화
             except Exception as e:
                 print(f"카메라 설정 경고: {e}")
 
@@ -332,7 +335,7 @@ class CameraThread(QThread):
                     if self.mutex.tryLock():
                         self.mutex.unlock()
 
-                time.sleep(0.033)  # 약 30 FPS
+                time.sleep(0.066)  # 약 15 FPS (딜레이 최소화)
 
         except Exception as e:
             self.error_occurred.emit(f"카메라 스레드 오류: {str(e)}")
