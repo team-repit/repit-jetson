@@ -284,8 +284,8 @@ class CameraThread(QThread):
 
             # 젯슨 최적화 카메라 설정 (딜레이 최소화)
             try:
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 원래 해상도 유지
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 원래 해상도 유지
                 self.cap.set(cv2.CAP_PROP_FPS, 15)  # 30 -> 15로 낮춰서 딜레이 감소
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 버퍼 크기 최소화
                 # 젯슨 특화 설정

@@ -596,8 +596,8 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         return None, None
     
     # 카메라 설정 (젯슨 딜레이 최소화)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)   # 1280 -> 640으로 해상도 낮춤
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)  # 720 -> 480으로 해상도 낮춤
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 원래 해상도 유지
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 원래 해상도 유지
     cap.set(cv2.CAP_PROP_FPS, 15)            # 15 FPS로 설정
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)      # 버퍼 크기 최소화
     
