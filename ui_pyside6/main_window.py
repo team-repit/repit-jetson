@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                               QHBoxLayout, QPushButton, QLabel, QGroupBox,
                               QSpinBox, QTextEdit, QMessageBox, QFrame)
 from PySide6.QtCore import QThread, Signal, Qt, QTimer, QMutex, QObject
-from PySide6.QtGui import QPixmap, QImage, QFont
+from PySide6.QtGui import QPixmap, QImage, QFont, QIcon
 import cv2
 import numpy as np
 
@@ -368,8 +368,13 @@ class MainWindow(QMainWindow):
     """메인 윈도우 - PySide6 버전"""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("운동 자세 분석 시스템 - PySide6")
+        self.setWindowTitle("Re:PiT - 운동 자세 분석 시스템")
         self.setGeometry(100, 100, 1200, 800)
+        
+        # 윈도우 아이콘 설정
+        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         # 변수 초기화
         self.duration_seconds = 60
