@@ -253,8 +253,14 @@ class ExerciseAnalyzerThread(QThread):
         self.running = False
         self.mutex.unlock()
 
+        # 즉시 중지 신호
         self.quit()
-        self.wait(5000)  # 최대 5초 대기
+        
+        # 짧은 대기 후 강제 종료
+        if not self.wait(2000):  # 2초 대기
+            print("[WARNING] 분석 스레드 강제 종료")
+            self.terminate()
+            self.wait(1000)
 
 
 class CameraThread(QThread):
@@ -361,12 +367,20 @@ class CameraThread(QThread):
 
         self.cleanup()
         self.quit()
-        self.wait(3000)  # 최대 3초 대기
+        
+        # 짧은 대기 후 강제 종료
+        if not self.wait(2000):  # 2초 대기
+            print("[WARNING] 카메라 스레드 강제 종료")
+            self.terminate()
+            self.wait(1000)
 
 
 class MainWindow(QMainWindow):
     """메인 윈도우 - PySide6 버전"""
-    def __init__(self):
+    # 토큰 설정 화면으로 돌아가기 시그널
+    go_to_token_screen = Signal()
+    
+    def __init__(self, access_token=None):
         super().__init__()
         self.setWindowTitle("Re:PiT - 운동 자세 분석 시스템")
         self.setGeometry(100, 100, 1200, 800)
@@ -383,6 +397,7 @@ class MainWindow(QMainWindow):
         self.camera_thread = None
         self.is_analyzing = False
         self.tts_manager = None
+        self.access_token = access_token  # API 토큰 저장
 
         # 경과 시간 타이머
         self.elapsed_time = 0
@@ -470,10 +485,51 @@ class MainWindow(QMainWindow):
         # 상태 라벨
         self.status_label = QLabel("대기 중...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc; }")
+        self.status_label.setStyleSheet("""
+            QLabel { 
+                background-color: #2d2d2d; 
+                color: #ffffff; 
+                padding: 10px; 
+                border: 1px solid #555555; 
+                border-radius: 5px;
+                font-weight: bold;
+            }
+        """)
         left_layout.addWidget(self.status_label)
 
         left_layout.addStretch()
+
+        # 토큰 설정 버튼
+        token_settings_group = QGroupBox("계정 설정")
+        token_settings_layout = QVBoxLayout(token_settings_group)
+        
+        self.token_button = QPushButton("🔑 토큰 설정")
+        self.token_button.setMinimumHeight(35)
+        self.token_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f8f9fa;
+                color: #495057;
+                border: 1px solid #dee2e6;
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+                border: 1px solid #adb5bd;
+            }
+        """)
+        self.token_button.clicked.connect(self.go_to_token_settings)
+        token_settings_layout.addWidget(self.token_button)
+        
+        # 토큰 상태 표시
+        self.token_status_label = QLabel()
+        self.update_token_status_display()
+        self.token_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.token_status_label.setStyleSheet("QLabel { font-size: 11px; color: #6c757d; padding: 5px; }")
+        token_settings_layout.addWidget(self.token_status_label)
+        
+        left_layout.addWidget(token_settings_group)
 
         self.update_button_styles()
         return left_panel
@@ -734,6 +790,7 @@ class MainWindow(QMainWindow):
 """
 
         # 리포트 내용 읽기
+        report_content = ""
         try:
             with open(report_path, 'r', encoding='utf-8') as f:
                 report_content = f.read()
@@ -742,6 +799,12 @@ class MainWindow(QMainWindow):
             self.result_text.setText(full_result)
         except Exception as e:
             self.result_text.setText(summary + f"\n리포트 파일을 읽을 수 없습니다: {e}")
+        
+        # 운동 기록 서버 전송 (토큰이 있는 경우)
+        if self.access_token and report_content:
+            self.send_exercise_record_to_server(video_path, report_content)
+        elif not self.access_token:
+            print("ℹ️  토큰이 없어 로컬에만 저장됩니다.")
 
         # 상태 및 알림
         self.status_label.setText("분석 완료!")
@@ -750,6 +813,63 @@ class MainWindow(QMainWindow):
             "분석 완료",
             f"분석이 완료되었습니다!\n\n비디오: {os.path.basename(video_path)}\n리포트: {os.path.basename(report_path)}"
         )
+    
+    def send_exercise_record_to_server(self, video_path, report_text):
+        """운동 기록을 서버로 전송"""
+        try:
+            print(f"🚀 서버로 운동 기록 전송 시작...")
+            print(f"   비디오: {video_path}")
+            print(f"   리포트 텍스트 길이: {len(report_text)} 글자")
+            print(f"   액세스 토큰: {self.access_token[:10]}..." if self.access_token else "   토큰 없음")
+            
+            # TODO: API 전송 로직 구현 예정
+            # import requests
+            # 
+            # api_url = "https://your-api-server.com/api/exercise-records"
+            # headers = {
+            #     "Authorization": f"Bearer {self.access_token}",
+            #     "Content-Type": "application/json"
+            # }
+            # 
+            # # 운동 타입 추출
+            # exercise_type = self.selected_exercise  # "squat", "lunge", "plank"
+            # 
+            # # 운동 기록 데이터 준비
+            # data = {
+            #     "exercise_type": exercise_type,
+            #     "report_text": report_text,  # txt 파일 내용을 문자열로 전송
+            #     "video_filename": os.path.basename(video_path),
+            #     "duration_seconds": self.duration_seconds,
+            #     "analyzed_at": time.strftime("%Y-%m-%d %H:%M:%S")
+            # }
+            # 
+            # # 서버로 POST 요청
+            # response = requests.post(api_url, json=data, headers=headers)
+            # 
+            # if response.status_code == 200 or response.status_code == 201:
+            #     print(f"✅ 운동 기록 전송 성공!")
+            #     QMessageBox.information(
+            #         self,
+            #         "전송 완료",
+            #         "운동 기록이 서버에 저장되었습니다!"
+            #     )
+            # else:
+            #     print(f"❌ 운동 기록 전송 실패: {response.status_code}")
+            #     print(f"   응답: {response.text}")
+            #     QMessageBox.warning(
+            #         self,
+            #         "전송 실패",
+            #         f"서버 전송에 실패했습니다.\n로컬에는 저장되었습니다.\n(오류 코드: {response.status_code})"
+            #     )
+            
+            # 임시: API 구현 전까지는 로그만 출력
+            print("📝 [전송 로직 구현 예정] 리포트 텍스트 변수에 저장 완료")
+            print(f"   report_text 변수: {len(report_text)} 글자")
+            
+        except Exception as e:
+            print(f"❌ 서버 전송 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
 
     def on_analysis_error(self, error_msg):
         """분석 오류 처리"""
@@ -769,25 +889,129 @@ class MainWindow(QMainWindow):
         self.elapsed_time += 1
         self.timer_label.setText(f"경과 시간: {self.elapsed_time}초")
     
+    def go_to_token_settings(self):
+        """토큰 설정 화면으로 이동"""
+        if self.is_analyzing:
+            QMessageBox.warning(
+                self,
+                "분석 진행 중",
+                "운동 분석이 진행 중입니다.\n분석을 먼저 중지해주세요."
+            )
+            return
+        
+        # 시그널 발생
+        self.go_to_token_screen.emit()
+    
+    def update_token_status_display(self):
+        """토큰 상태 표시 업데이트"""
+        if self.access_token:
+            # 토큰의 처음 4자와 마지막 4자만 표시
+            if len(self.access_token) > 8:
+                masked_token = f"{self.access_token[:4]}...{self.access_token[-4:]}"
+            else:
+                masked_token = "****"
+            self.token_status_label.setText(f"✅ 토큰: {masked_token}")
+        else:
+            self.token_status_label.setText("⚠️ 토큰 미설정 (로컬 저장만)")
+    
+    def set_access_token(self, token):
+        """액세스 토큰 설정"""
+        self.access_token = token
+        self.update_token_status_display()
+        print(f"✅ 액세스 토큰 설정됨 (길이: {len(token) if token else 0})")
 
     def closeEvent(self, event):
-        """애플리케이션 종료 시 정리"""
-        # TTS 매니저 정리
-        if hasattr(self, 'tts_manager') and self.tts_manager:
-            self.tts_manager.stop_tts()
-        
-        # 모든 스레드 정리
-        if self.camera_thread and self.camera_thread.isRunning():
-            self.camera_thread.stop()
+        """애플리케이션 종료 시 정리 - 강력한 스레드 정리"""
+        try:
+            print("[DEBUG] 애플리케이션 종료 시작...")
+            
+            # 분석 중이면 먼저 중지
+            if self.is_analyzing:
+                print("[DEBUG] 분석 중지 중...")
+                self.stop_analysis(finished_naturally=False)
+            
+            # TTS 매니저 정리
+            if hasattr(self, 'tts_manager') and self.tts_manager:
+                try:
+                    print("[DEBUG] TTS 매니저 정리 중...")
+                    self.tts_manager.stop_tts()
+                    self.tts_manager = None
+                except Exception as e:
+                    print(f"[WARNING] TTS 정리 중 오류: {e}")
+            
+            # 카메라 스레드 강력 정리
+            if hasattr(self, 'camera_thread') and self.camera_thread:
+                try:
+                    print("[DEBUG] 카메라 스레드 강력 정리 중...")
+                    if self.camera_thread.isRunning():
+                        # 즉시 중지 신호
+                        self.camera_thread.running = False
+                        self.camera_thread.stop()
+                        
+                        # 1초 대기 후 강제 종료
+                        if not self.camera_thread.wait(1000):
+                            print("[WARNING] 카메라 스레드 강제 종료")
+                            self.camera_thread.terminate()
+                            self.camera_thread.wait(500)
+                        
+                        # 스레드 완전 정리
+                        self.camera_thread.deleteLater()
+                    
+                    self.camera_thread = None
+                    print("[DEBUG] 카메라 스레드 정리 완료")
+                except Exception as e:
+                    print(f"[WARNING] 카메라 스레드 정리 중 오류: {e}")
+            
+            # 분석 스레드 강력 정리
+            if hasattr(self, 'analyzer_thread') and self.analyzer_thread:
+                try:
+                    print("[DEBUG] 분석 스레드 강력 정리 중...")
+                    if self.analyzer_thread.isRunning():
+                        # 즉시 중지 신호
+                        self.analyzer_thread.running = False
+                        self.analyzer_thread.stop()
+                        
+                        # 1초 대기 후 강제 종료
+                        if not self.analyzer_thread.wait(1000):
+                            print("[WARNING] 분석 스레드 강제 종료")
+                            self.analyzer_thread.terminate()
+                            self.analyzer_thread.wait(500)
+                        
+                        # 스레드 완전 정리
+                        self.analyzer_thread.deleteLater()
+                    
+                    self.analyzer_thread = None
+                    print("[DEBUG] 분석 스레드 정리 완료")
+                except Exception as e:
+                    print(f"[WARNING] 분석 스레드 정리 중 오류: {e}")
 
-        if self.analyzer_thread and self.analyzer_thread.isRunning():
-            self.analyzer_thread.stop()
-
-        # 타이머 정리
-        if self.analysis_timer.isActive():
-            self.analysis_timer.stop()
-
-        event.accept()
+            # 타이머 정리
+            if hasattr(self, 'analysis_timer') and self.analysis_timer:
+                try:
+                    if self.analysis_timer.isActive():
+                        self.analysis_timer.stop()
+                    self.analysis_timer.deleteLater()
+                    print("[DEBUG] 타이머 정리 완료")
+                except Exception as e:
+                    print(f"[WARNING] 타이머 정리 중 오류: {e}")
+            
+            # Qt 이벤트 처리 (스레드 정리 완료 대기)
+            from PySide6.QtCore import QCoreApplication
+            QCoreApplication.processEvents()
+            
+            # 메모리 정리
+            import gc
+            gc.collect()
+            
+            print("[DEBUG] 애플리케이션 종료 완료")
+            
+        except Exception as e:
+            print(f"[ERROR] 종료 중 오류 발생: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # 어떤 경우든 이벤트 수락
+            event.accept()
 
 
 def main():
