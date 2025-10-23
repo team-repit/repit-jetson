@@ -725,6 +725,43 @@ class ComprehensiveSquatGrader:
         elif num_errors <= 6: return "D"    # 5-6개 오류: D급 (기존 F급)
         else: return "F"                    # 7개 이상: F급 (심각한 경우)
 
+    def get_body_part_scores(self, errors: List[str]) -> List[Dict[str, str]]:
+        """부위별 점수를 반환합니다."""
+        body_part_scores = []
+        
+        # 스쿼트 관련 부위별 오류 매핑
+        body_part_error_mapping = {
+            "허리": ["허리 말림", "굿모닝 스쿼트", "상체 숙임"],
+            "무릎": ["무릎 모임", "깊이 부족"],
+            "골반": ["골반 치우침"],
+            "발목": ["뒤꿈치 들림", "발목 가동성 부족"]
+        }
+        
+        # 각 부위별로 점수 계산
+        for body_part, related_errors in body_part_error_mapping.items():
+            # 해당 부위와 관련된 오류 개수 계산
+            part_errors = [error for error in errors if error in related_errors]
+            num_part_errors = len(part_errors)
+            
+            # 부위별 점수 계산 (전체 점수와 동일한 기준 적용)
+            if num_part_errors == 0:
+                detail_score = "A"
+            elif num_part_errors <= 2:
+                detail_score = "B"
+            elif num_part_errors <= 4:
+                detail_score = "C"
+            elif num_part_errors <= 6:
+                detail_score = "D"
+            else:
+                detail_score = "F"
+            
+            body_part_scores.append({
+                "body_part": body_part,
+                "detail_score": detail_score
+            })
+        
+        return body_part_scores
+
     def get_error_priority(self, error: str) -> str:
         """오류의 우선순위를 반환합니다."""
         safety_errors = ["허리 말림", "무릎 모임", "굿모닝 스쿼트"]
@@ -792,7 +829,92 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
-def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=None, is_gui_mode=False):
+def save_json_report(json_path: str, total_reps: int, results: List[Dict], total_duration: int):
+    """분석 결과를 JSON 파일로 저장합니다."""
+    # 전체 점수 계산 (가장 많이 나온 등급을 전체 점수로 사용)
+    if results:
+        grades = [res['grade'] for res in results]
+        grade_counts = GradeCounter(grades)
+        most_common_grade = grade_counts.most_common(1)[0][0]
+    else:
+        most_common_grade = "F"
+    
+    # 부위별 점수 계산 (모든 반복의 평균)
+    grader = ComprehensiveSquatGrader()
+    all_body_part_scores = []
+    
+    for res in results:
+        body_part_scores = grader.get_body_part_scores(res['errors'])
+        all_body_part_scores.extend(body_part_scores)
+    
+    # 부위별 평균 점수 계산
+    body_part_grade_counts = {}
+    for score in all_body_part_scores:
+        body_part = score['body_part']
+        detail_score = score['detail_score']
+        if body_part not in body_part_grade_counts:
+            body_part_grade_counts[body_part] = []
+        body_part_grade_counts[body_part].append(detail_score)
+    
+    final_body_part_scores = []
+    for body_part, scores in body_part_grade_counts.items():
+        # 점수를 숫자로 변환하여 평균 계산
+        score_values = {'A': 5, 'B': 4, 'C': 3, 'D': 2, 'F': 1}
+        numeric_scores = [score_values.get(score, 1) for score in scores]
+        avg_score = sum(numeric_scores) / len(numeric_scores)
+        
+        # 평균을 다시 등급으로 변환
+        if avg_score >= 4.5:
+            final_grade = "A"
+        elif avg_score >= 3.5:
+            final_grade = "B"
+        elif avg_score >= 2.5:
+            final_grade = "C"
+        elif avg_score >= 1.5:
+            final_grade = "D"
+        else:
+            final_grade = "F"
+        
+        final_body_part_scores.append({
+            "body_part": body_part,
+            "detail_score": final_grade
+        })
+    
+    # 리포트 텍스트 생성
+    analysis_text = f"실시간 스쿼트 자세 분석 리포트 (TTS 피드백 포함)\n"
+    analysis_text += f"총 스쿼트 횟수: {total_reps}회\n\n"
+    
+    if results:
+        analysis_text += "반복별 상세 결과:\n"
+        for res in results:
+            analysis_text += f"\n--- {res['rep']}회차: 등급 {res['grade']} ---\n"
+            if res['errors']:
+                analysis_text += "  [수행하지 못한 기준]\n"
+                for error_key in sorted(res['errors']):
+                    error_description = ERROR_CRITERIA_MAP.get(error_key, "알 수 없는 오류")
+                    analysis_text += f"  - {error_description}\n"
+            else:
+                analysis_text += "  - 모든 기준을 만족했습니다.\n"
+    
+    # JSON 데이터 구성
+    json_data = {
+        "pose_type": "SQUAT",
+        "duration": total_duration,
+        "reps": total_reps,
+        "total_score": most_common_grade,
+        "video_path": None,  # 영상 경로는 null로 설정
+        "analysis_text": analysis_text,
+        "score_details": final_body_part_scores
+    }
+    
+    # JSON 파일 저장
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(json_data, f, ensure_ascii=False, indent=2)
+    
+    print(f"JSON 리포트가 '{json_path}'에 저장되었습니다.")
+    return json_data
+
+def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=None, is_gui_mode=False, api_client=None):
     """실시간 카메라를 통한 스쿼트 분석 함수 (TTS 피드백 포함)
     
     Args:
@@ -800,7 +922,7 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         stop_callback (callable): 분석 중지 여부를 확인하는 콜백 함수
         frame_callback (callable): 프레임 처리 콜백 함수
         is_gui_mode (bool): GUI 모드 여부 (PySide6 환경에서는 True)
-        frame_callback (callable): 처리된 프레임을 GUI로 전달하는 콜백 함수
+        api_client: API 클라이언트 (선택사항)
     """
     
     # 중지 플래그 초기화
@@ -1163,17 +1285,41 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
 
     # 결과 저장
     save_report(output_report_path, counter, all_rep_results)
+    
+    # JSON 리포트 저장
+    output_json_path = os.path.join(output_dir, f"squat_realtime_tts_analysis_{timestamp}.json")
+    json_data = save_json_report(output_json_path, counter, all_rep_results, duration_seconds)
+    
+    # API로 데이터 전송 (API 클라이언트가 제공된 경우)
+    api_result = None
+    if api_client:
+        print("API로 운동 기록을 전송 중...")
+        try:
+            api_result = api_client.create_record(json_data)
+            if api_result["success"]:
+                print(f"✓ API 전송 성공: {api_result['message']}")
+                if api_result.get("data", {}).get("result", {}).get("record_id"):
+                    record_id = api_result["data"]["result"]["record_id"]
+                    print(f"  저장된 기록 ID: {record_id}")
+            else:
+                print(f"✗ API 전송 실패: {api_result['message']}")
+        except Exception as e:
+            print(f"✗ API 전송 중 오류 발생: {str(e)}")
+            api_result = {"success": False, "message": str(e)}
+    
     print(f"분석 영상이 '{output_video_path}'에 저장되었습니다.")
     print(f"분석 리포트가 '{output_report_path}'에 저장되었습니다.")
+    print(f"JSON 리포트가 '{output_json_path}'에 저장되었습니다.")
     print(f"총 {counter}회의 스쿼트를 분석했습니다.")
     print("TTS 피드백이 실시간으로 제공되었습니다.")
     
-    # 결과 파일 경로 반환
-    return output_video_path, output_report_path
+    # 결과 파일 경로 반환 (JSON 데이터와 API 결과 포함)
+    return output_video_path, output_report_path, json_data, api_result
 def main():
     """기존 main 함수 (호환성 유지)"""
-    video_path, report_path = run_squat_analysis(120)  # 기본 2분
-    if video_path and report_path:
+    result = run_squat_analysis(120)  # 기본 2분
+    if result and len(result) >= 2:
+        video_path, report_path = result[0], result[1]
         print(f"분석 완료: {video_path}, {report_path}")
     else:
         print("분석 실패")

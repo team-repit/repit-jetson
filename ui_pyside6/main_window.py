@@ -79,15 +79,16 @@ class TTSManager(QObject):
 class ExerciseAnalyzerThread(QThread):
     """운동 분석을 위한 스레드 - 젯슨 ARM64 안정성 강화"""
     # PySide6 Signal 사용 (pyqtSignal → Signal)
-    analysis_finished = Signal(str, str)
+    analysis_finished = Signal(str, str, dict, dict)  # video_path, report_path, json_data, api_result
     error_occurred = Signal(str)
     status_updated = Signal(str)
     frame_processed = Signal(np.ndarray)  # 처리된 프레임을 GUI로 전달
 
-    def __init__(self, exercise_type, duration_seconds):
+    def __init__(self, exercise_type, duration_seconds, api_client=None):
         super().__init__()
         self.exercise_type = exercise_type
         self.duration_seconds = duration_seconds
+        self.api_client = api_client
         self.running = True
         self.mutex = QMutex()
 
@@ -121,9 +122,10 @@ class ExerciseAnalyzerThread(QThread):
 
                     # 함수가 존재하는지 확인
                     if hasattr(squat_module, 'run_squat_analysis'):
-                        video_path, report_path = squat_module.run_squat_analysis(
-                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True
+                        result = squat_module.run_squat_analysis(
+                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True, api_client=self.api_client
                         )
+                        video_path, report_path = result[0], result[1]
                     else:
                         self.error_occurred.emit("분석 함수(run_squat_analysis)를 찾을 수 없습니다.")
                         return
@@ -152,9 +154,10 @@ class ExerciseAnalyzerThread(QThread):
 
                     # 함수가 존재하는지 확인 (스쿼트와 동일한 방식)
                     if hasattr(lunge_module, 'run_lunge_analysis'):
-                        video_path, report_path = lunge_module.run_lunge_analysis(
-                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True
+                        result = lunge_module.run_lunge_analysis(
+                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True, api_client=self.api_client
                         )
+                        video_path, report_path = result[0], result[1]
                     else:
                         self.error_occurred.emit("분석 함수(run_lunge_analysis)를 찾을 수 없습니다.")
                         return
@@ -184,9 +187,10 @@ class ExerciseAnalyzerThread(QThread):
                     # plank.py에 있는 분석 함수 이름을 'run_plank_analysis'로 가정합니다.
                     # 만약 함수 이름이 다르다면 이 부분을 수정해야 합니다.
                     if hasattr(plank_module, 'run_plank_analysis'):
-                        video_path, report_path = plank_module.run_plank_analysis(
-                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True
+                        result = plank_module.run_plank_analysis(
+                            self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True, api_client=self.api_client
                         )
+                        video_path, report_path = result[0], result[1]
                     else:
                         self.error_occurred.emit("분석 함수(run_plank_analysis)를 찾을 수 없습니다.")
                         return
@@ -206,7 +210,10 @@ class ExerciseAnalyzerThread(QThread):
                 return
 
             if video_path and report_path:
-                self.analysis_finished.emit(video_path, report_path)
+                # API 결과도 함께 전달
+                json_data = result[2] if len(result) > 2 else None
+                api_result = result[3] if len(result) > 3 else None
+                self.analysis_finished.emit(video_path, report_path, json_data, api_result)
             else:
                 self.error_occurred.emit("분석이 알 수 없는 이유로 실패했습니다.")
 
@@ -397,7 +404,12 @@ class MainWindow(QMainWindow):
         self.camera_thread = None
         self.is_analyzing = False
         self.tts_manager = None
-        self.access_token = access_token  # API 토큰 저장
+        
+        # API 관련 변수
+        self.access_token = access_token
+        self.api_client = None
+        if self.access_token:
+            self.api_client = RepitAPIClient(access_token=self.access_token)
 
         # 경과 시간 타이머
         self.elapsed_time = 0
@@ -726,7 +738,7 @@ class MainWindow(QMainWindow):
 
             # 분석 스레드 시작 (안전한 지연 시작)
             duration = self.duration_spinbox.value()
-            self.analyzer_thread = ExerciseAnalyzerThread(self.selected_exercise, duration)
+            self.analyzer_thread = ExerciseAnalyzerThread(self.selected_exercise, duration, api_client=self.api_client)
 
             self.analyzer_thread.status_updated.connect(self.update_status)
             self.analyzer_thread.analysis_finished.connect(self.on_analysis_finished)
@@ -777,7 +789,7 @@ class MainWindow(QMainWindow):
         """상태 업데이트"""
         self.status_label.setText(status_msg)
 
-    def on_analysis_finished(self, video_path, report_path):
+    def on_analysis_finished(self, video_path, report_path, json_data=None, api_result=None):
         """분석 완료 처리"""
         self.stop_analysis(finished_naturally=True)
 
@@ -800,76 +812,35 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.result_text.setText(summary + f"\n리포트 파일을 읽을 수 없습니다: {e}")
         
-        # 운동 기록 서버 전송 (토큰이 있는 경우)
-        if self.access_token and report_content:
-            self.send_exercise_record_to_server(video_path, report_content)
+        # API 전송 결과 처리
+        if api_result is not None:
+            if api_result.get("success", False):
+                # API 전송 성공
+                QMessageBox.information(
+                    self,
+                    "전송 완료",
+                    "운동 기록이 서버에 성공적으로 저장되었습니다.\n\n"
+                    "📹 비디오와 📄 리포트는 로컬에 저장되었습니다."
+                )
+                if api_result.get("data", {}).get("result", {}).get("record_id"):
+                    record_id = api_result["data"]["result"]["record_id"]
+                    print(f"✅ 저장된 기록 ID: {record_id}")
+            else:
+                # API 전송 실패
+                error_message = api_result.get("message", "알 수 없는 오류")
+                QMessageBox.warning(
+                    self,
+                    "전송 실패",
+                    f"운동 기록 서버 전송에 실패했습니다.\n\n"
+                    f"오류: {error_message}\n\n"
+                    f"📹 비디오와 📄 리포트는 로컬에 저장되었습니다."
+                )
         elif not self.access_token:
             print("ℹ️  토큰이 없어 로컬에만 저장됩니다.")
 
-        # 상태 및 알림
+        # 상태 업데이트
         self.status_label.setText("분석 완료!")
-        QMessageBox.information(
-            self,
-            "분석 완료",
-            f"분석이 완료되었습니다!\n\n비디오: {os.path.basename(video_path)}\n리포트: {os.path.basename(report_path)}"
-        )
     
-    def send_exercise_record_to_server(self, video_path, report_text):
-        """운동 기록을 서버로 전송"""
-        try:
-            print(f"🚀 서버로 운동 기록 전송 시작...")
-            print(f"   비디오: {video_path}")
-            print(f"   리포트 텍스트 길이: {len(report_text)} 글자")
-            print(f"   액세스 토큰: {self.access_token[:10]}..." if self.access_token else "   토큰 없음")
-            
-            # TODO: API 전송 로직 구현 예정
-            # import requests
-            # 
-            # api_url = "https://your-api-server.com/api/exercise-records"
-            # headers = {
-            #     "Authorization": f"Bearer {self.access_token}",
-            #     "Content-Type": "application/json"
-            # }
-            # 
-            # # 운동 타입 추출
-            # exercise_type = self.selected_exercise  # "squat", "lunge", "plank"
-            # 
-            # # 운동 기록 데이터 준비
-            # data = {
-            #     "exercise_type": exercise_type,
-            #     "report_text": report_text,  # txt 파일 내용을 문자열로 전송
-            #     "video_filename": os.path.basename(video_path),
-            #     "duration_seconds": self.duration_seconds,
-            #     "analyzed_at": time.strftime("%Y-%m-%d %H:%M:%S")
-            # }
-            # 
-            # # 서버로 POST 요청
-            # response = requests.post(api_url, json=data, headers=headers)
-            # 
-            # if response.status_code == 200 or response.status_code == 201:
-            #     print(f"✅ 운동 기록 전송 성공!")
-            #     QMessageBox.information(
-            #         self,
-            #         "전송 완료",
-            #         "운동 기록이 서버에 저장되었습니다!"
-            #     )
-            # else:
-            #     print(f"❌ 운동 기록 전송 실패: {response.status_code}")
-            #     print(f"   응답: {response.text}")
-            #     QMessageBox.warning(
-            #         self,
-            #         "전송 실패",
-            #         f"서버 전송에 실패했습니다.\n로컬에는 저장되었습니다.\n(오류 코드: {response.status_code})"
-            #     )
-            
-            # 임시: API 구현 전까지는 로그만 출력
-            print("📝 [전송 로직 구현 예정] 리포트 텍스트 변수에 저장 완료")
-            print(f"   report_text 변수: {len(report_text)} 글자")
-            
-        except Exception as e:
-            print(f"❌ 서버 전송 중 오류: {e}")
-            import traceback
-            traceback.print_exc()
 
     def on_analysis_error(self, error_msg):
         """분석 오류 처리"""
@@ -1034,11 +1005,32 @@ def main():
         import gc
         gc.set_threshold(700, 10, 10)  # 더 자주 가비지 컬렉션
 
-        print("[DEBUG] 메인 윈도우 생성 중...")
-        window = MainWindow()
-
-        print("[DEBUG] 윈도우 표시...")
-        window.show()
+        print("[DEBUG] 토큰 입력 위젯 생성 중...")
+        from token_input_widget import TokenInputWidget
+        
+        token_widget = TokenInputWidget()
+        
+        def on_token_submitted(token):
+            print(f"[DEBUG] 토큰 입력 완료: {token[:10]}...")
+            token_widget.close()
+            
+            print("[DEBUG] 메인 윈도우 생성 중...")
+            window = MainWindow(access_token=token)
+            window.show()
+        
+        def on_continue_without_token():
+            print("[DEBUG] 토큰 없이 계속하기")
+            token_widget.close()
+            
+            print("[DEBUG] 메인 윈도우 생성 중...")
+            window = MainWindow(access_token=None)
+            window.show()
+        
+        token_widget.token_submitted.connect(on_token_submitted)
+        token_widget.continue_without_token.connect(on_continue_without_token)
+        
+        print("[DEBUG] 토큰 입력 화면 표시...")
+        token_widget.show()
 
         # 안전한 종료 핸들러
         def safe_exit():
