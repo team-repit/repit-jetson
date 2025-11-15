@@ -240,6 +240,14 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             # 플랫폼별 백업 TTS 시도
             self._speak_backup(message)
 
+    def _safe_remove(self, file_path: str):
+        """임시 파일 삭제를 안전하게 수행"""
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except OSError as e:
+            print(f"[WARNING] 임시 파일 삭제 실패 ({file_path}): {e}")
+
     def _speak_jetson_espeak(self, message: str, priority: str):
         """젯슨 espeak TTS (안정적이고 빠름)"""
         try:
@@ -323,9 +331,11 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
                 wf.setframerate(sample_rate)
                 wf.writeframes(audio_np.tobytes())
 
-            # aplay로 재생
-            subprocess.run(['aplay', wav_file], check=True)
-            os.remove(wav_file)
+            try:
+                # aplay로 재생
+                subprocess.run(['aplay', wav_file], check=True)
+            finally:
+                self._safe_remove(wav_file)
 
         except Exception as e:
             print(f"오디오 재생 오류: {e}")
@@ -342,9 +352,12 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             print("Festival TTS 실패, Pico TTS 시도")
             try:
                 # Pico TTS 시도
-                subprocess.run(['pico2wave', '-w', 'temp_speech.wav', message], check=True)
-                subprocess.run(['aplay', 'temp_speech.wav'], check=True)
-                os.remove('temp_speech.wav')
+                temp_wav = "temp_speech.wav"
+                subprocess.run(['pico2wave', '-w', temp_wav, message], check=True)
+                try:
+                    subprocess.run(['aplay', temp_wav], check=True)
+                finally:
+                    self._safe_remove(temp_wav)
                 print("젯슨 TTS (Pico) 사용됨")
             except (subprocess.CalledProcessError, FileNotFoundError):
                 print("Pico TTS도 실패, Flite TTS 시도")
@@ -363,19 +376,18 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             tts = gTTS(text=message, lang='ko')
             temp_file = "temp_speech.mp3"
             tts.save(temp_file)
-
-            # 플랫폼별 오디오 재생
-            if self.platform == "Darwin":  # macOS
-                subprocess.run(['afplay', temp_file], check=True)
-            elif self.platform == "Windows":
-                os.startfile(temp_file)  # Windows 기본 플레이어
-            elif self.platform in ["Linux", "Jetson"]:
-                # Linux/젯슨에서 MP3 재생을 위한 여러 방법 시도
-                self._play_mp3_linux(temp_file)
-
-            # 임시 파일 삭제
-            os.remove(temp_file)
-            print("Google TTS 사용됨")
+            try:
+                # 플랫폼별 오디오 재생
+                if self.platform == "Darwin":  # macOS
+                    subprocess.run(['afplay', temp_file], check=True)
+                elif self.platform == "Windows":
+                    os.startfile(temp_file)  # Windows 기본 플레이어
+                elif self.platform in ["Linux", "Jetson"]:
+                    # Linux/젯슨에서 MP3 재생을 위한 여러 방법 시도
+                    self._play_mp3_linux(temp_file)
+                print("Google TTS 사용됨")
+            finally:
+                self._safe_remove(temp_file)
 
         except ImportError:
             print("gTTS가 설치되지 않았습니다. 백업 TTS를 사용합니다.")
@@ -424,9 +436,11 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             wav_file = mp3_file.replace('.mp3', '.wav')
             audio.export(wav_file, format="wav")
             
-            # aplay로 재생 (젯슨에서 가장 안정적)
-            subprocess.run(['aplay', wav_file], check=True, timeout=10)
-            os.remove(wav_file)
+            try:
+                # aplay로 재생 (젯슨에서 가장 안정적)
+                subprocess.run(['aplay', wav_file], check=True, timeout=10)
+            finally:
+                self._safe_remove(wav_file)
             print("MP3를 WAV로 변환하여 aplay로 재생")
         except ImportError:
             print("pydub가 설치되지 않아 MP3를 WAV로 변환할 수 없습니다")
@@ -489,9 +503,12 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
         except:
             try:
                 # Pico TTS
-                subprocess.run(['pico2wave', '-w', 'temp_speech.wav', message], check=True)
-                subprocess.run(['aplay', 'temp_speech.wav'], check=True)
-                os.remove('temp_speech.wav')
+                temp_wav = "temp_speech.wav"
+                subprocess.run(['pico2wave', '-w', temp_wav, message], check=True)
+                try:
+                    subprocess.run(['aplay', temp_wav], check=True)
+                finally:
+                    self._safe_remove(temp_wav)
                 print("젯슨 백업 TTS (Pico) 사용됨")
             except:
                 try:

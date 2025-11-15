@@ -216,6 +216,14 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             print(f"주 TTS 실패: {e}")
             # 플랫폼별 백업 TTS 시도
             self._speak_backup(message)
+
+    def _safe_remove(self, file_path: str):
+        """임시 파일 삭제를 안전하게 수행"""
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except OSError as e:
+            print(f"[WARNING] 임시 파일 삭제 실패 ({file_path}): {e}")
     
     def _speak_gtts(self, message: str, priority: str):
         """Google TTS 메인 (우선 사용)"""
@@ -225,18 +233,18 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             temp_file = "temp_speech.mp3"
             tts.save(temp_file)
             
-            # 플랫폼별 오디오 재생
-            if self.platform == "Darwin":  # macOS
-                subprocess.run(['afplay', temp_file], check=True)
-            elif self.platform == "Windows":
-                os.startfile(temp_file)  # Windows 기본 플레이어
-            elif self.platform in ["Linux", "Jetson"]:
-                # Linux/젯슨에서 MP3 재생을 위한 여러 방법 시도
-                self._play_mp3_linux(temp_file)
-            
-            # 임시 파일 삭제
-            os.remove(temp_file)
-            print("Google TTS 사용됨")
+            try:
+                # 플랫폼별 오디오 재생
+                if self.platform == "Darwin":  # macOS
+                    subprocess.run(['afplay', temp_file], check=True)
+                elif self.platform == "Windows":
+                    os.startfile(temp_file)  # Windows 기본 플레이어
+                elif self.platform in ["Linux", "Jetson"]:
+                    # Linux/젯슨에서 MP3 재생을 위한 여러 방법 시도
+                    self._play_mp3_linux(temp_file)
+                print("Google TTS 사용됨")
+            finally:
+                self._safe_remove(temp_file)
             
         except ImportError:
             print("gTTS가 설치되지 않았습니다. 백업 TTS를 사용합니다.")
@@ -285,9 +293,11 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             wav_file = mp3_file.replace('.mp3', '.wav')
             audio.export(wav_file, format="wav")
             
-            # aplay로 재생 (젯슨에서 가장 안정적)
-            subprocess.run(['aplay', wav_file], check=True, timeout=10)
-            os.remove(wav_file)
+            try:
+                # aplay로 재생 (젯슨에서 가장 안정적)
+                subprocess.run(['aplay', wav_file], check=True, timeout=10)
+            finally:
+                self._safe_remove(wav_file)
             print("MP3를 WAV로 변환하여 aplay로 재생")
         except ImportError:
             print("pydub가 설치되지 않아 MP3를 WAV로 변환할 수 없습니다")
