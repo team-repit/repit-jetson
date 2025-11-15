@@ -11,6 +11,7 @@ from typing import List, Dict, Tuple, Optional
 from collections import Counter as GradeCounter
 
 from analysis_postprocess import send_record_and_upload
+from video_utils import FrameRateController
 import json
 
 # PyInstaller 환경에서 MediaPipe 모델 경로 설정
@@ -844,6 +845,8 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     output_report_path = os.path.join(output_dir, f"lunge_realtime_tts_report_{timestamp}.txt")
     
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
+    frame_rate_controller = FrameRateController(target_fps)
+    last_recorded_frame = None
     
     try:
         # TTS 피드백 매니저 초기화
@@ -923,7 +926,8 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
             cv2.putText(image, f'TIME: {remaining_time:.1f}s', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                         (255, 255, 255), 2, cv2.LINE_AA)
             cv2.putText(image, 'No Person Detected', (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
-            out.write(image)
+            frame_rate_controller.write(out, image)
+            last_recorded_frame = image
             continue
             
         try:
@@ -1051,7 +1055,8 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
             frame_callback(flipped_image.copy())  # 반전된 프레임을 GUI로 전달
         
         # 동영상 저장 (원본 방향으로 저장)
-        out.write(image)
+        frame_rate_controller.write(out, image)
+        last_recorded_frame = image
         
         # macOS에서는 GUI 없이 콘솔 모드로 실행
         print(f"프레임 처리 중... REP: {counter}, PHASE: {current_phase}, GRADE: {last_rep_grade}")
@@ -1116,6 +1121,9 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
 
     # TTS 매니저 정리
     tts_manager.stop()
+    
+    actual_elapsed = time.time() - start_time
+    frame_rate_controller.finalize(out, last_recorded_frame, min(actual_elapsed, recording_duration))
     
     cap.release()
     out.release()

@@ -12,6 +12,7 @@ from collections import Counter as GradeCounter
 import json
 
 from analysis_postprocess import send_record_and_upload
+from video_utils import FrameRateController
 
 # PyInstaller 환경에서 MediaPipe 모델 경로 설정
 def get_mediapipe_path():
@@ -788,6 +789,8 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     output_report_path = os.path.join(output_dir, f"plank_realtime_tts_report_{timestamp}.txt")
     
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
+    frame_rate_controller = FrameRateController(target_fps)
+    last_recorded_frame = None
     
     try:
         # TTS 피드백 매니저 초기화
@@ -862,6 +865,8 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         # 포즈 랜드마크가 감지되지 않은 경우 건너뛰기
         if not results.pose_landmarks:
             print("포즈 랜드마크가 감지되지 않았습니다. 카메라 앞에 사람이 있는지 확인하세요.")
+            frame_rate_controller.write(out, image)
+            last_recorded_frame = image
             continue
             
         try:
@@ -987,7 +992,8 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
             frame_callback(flipped_image.copy())  # 반전된 프레임을 GUI로 전달
         
         # 동영상 저장 (원본 방향으로 저장)
-        out.write(image)
+        frame_rate_controller.write(out, image)
+        last_recorded_frame = image
         
         # macOS에서는 GUI 없이 콘솔 모드로 실행
         print(f"프레임 처리 중... STATUS: {'HOLDING' if is_holding else 'READY'}, TIME: {hold_time:.1f}s, GRADE: {current_grade}")
@@ -1070,6 +1076,9 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
 
     # TTS 매니저 정리
     tts_manager.stop()
+    
+    actual_elapsed = time.time() - start_time
+    frame_rate_controller.finalize(out, last_recorded_frame, min(actual_elapsed, recording_duration))
     
     cap.release()
     out.release()
