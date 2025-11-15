@@ -9,6 +9,19 @@ import os
 import time
 import threading
 
+# PyInstaller 환경에서 경로 처리
+def resource_path(relative_path):
+    """PyInstaller 환경에서 리소스 경로 가져오기"""
+    try:
+        # PyInstaller로 빌드된 경우 _MEIPASS 임시 폴더
+        base_path = sys._MEIPASS
+    except Exception:
+        # 일반 Python 실행 환경
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        # ui_pyside6 폴더에서 상위로 이동
+        base_path = os.path.dirname(base_path)
+    return os.path.join(base_path, relative_path)
+
 # 젯슨/ARM64 최적화를 위한 환경변수 설정
 os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
 os.environ['OPENCV_VIDEOIO_DEBUG'] = '1'
@@ -22,6 +35,9 @@ from PySide6.QtCore import QThread, Signal, Qt, QTimer, QMutex, QObject
 from PySide6.QtGui import QPixmap, QImage, QFont, QIcon
 import cv2
 import numpy as np
+
+# API 클라이언트 import
+from api_client import RepitAPIClient
 
 # OpenCV 백엔드 설정 (젯슨 안정성 향상)
 try:
@@ -45,12 +61,28 @@ class TTSManager(QObject):
         """TTS 워커 설정 - 시그널 없이 직접 사용"""
         try:
             # UniversalTTS import 및 생성 (메인 스레드에서 직접 생성)
+            # PyInstaller 환경을 고려한 안전한 import
             if self.exercise_type == "squat":
-                from squat_real_tts import UniversalTTS
+                try:
+                    from squat_real_tts import UniversalTTS
+                except ImportError as e:
+                    print(f"[ERROR] squat_real_tts import 실패: {e}")
+                    import squat_real_tts
+                    UniversalTTS = squat_real_tts.UniversalTTS
             elif self.exercise_type == "lunge":
-                from lunge_realtime import UniversalTTS
+                try:
+                    from lunge_realtime import UniversalTTS
+                except ImportError as e:
+                    print(f"[ERROR] lunge_realtime import 실패: {e}")
+                    import lunge_realtime
+                    UniversalTTS = lunge_realtime.UniversalTTS
             elif self.exercise_type == "plank":
-                from plank import UniversalTTS
+                try:
+                    from plank import UniversalTTS
+                except ImportError as e:
+                    print(f"[ERROR] plank import 실패: {e}")
+                    import plank
+                    UniversalTTS = plank.UniversalTTS
             else:
                 return
             
@@ -79,7 +111,7 @@ class TTSManager(QObject):
 class ExerciseAnalyzerThread(QThread):
     """운동 분석을 위한 스레드 - 젯슨 ARM64 안정성 강화"""
     # PySide6 Signal 사용 (pyqtSignal → Signal)
-    analysis_finished = Signal(str, str, dict, dict)  # video_path, report_path, json_data, api_result
+    analysis_finished = Signal(str, str, str, dict, dict)  # video_path, report_path, json_path, json_data, api_result
     error_occurred = Signal(str)
     status_updated = Signal(str)
     frame_processed = Signal(np.ndarray)  # 처리된 프레임을 GUI로 전달
@@ -100,7 +132,7 @@ class ExerciseAnalyzerThread(QThread):
             gc.collect()
 
             print(f"[DEBUG] 분석 스레드 시작: {self.exercise_type}")
-            video_path, report_path = None, None
+            video_path, report_path, result = None, None, None
 
             # 안전한 모듈 import 및 실행
             if self.exercise_type == "squat":
@@ -110,13 +142,25 @@ class ExerciseAnalyzerThread(QThread):
                     # 동적 import로 메모리 충돌 방지
                     import importlib
                     import sys
-
-                    # 모듈이 이미 로드되어 있다면 재로드
-                    if 'squat_real_tts' in sys.modules:
-                        squat_module = sys.modules['squat_real_tts']
-                        importlib.reload(squat_module)
-                    else:
-                        squat_module = importlib.import_module('squat_real_tts')
+                    
+                    # PyInstaller 환경에서 모듈 경로 처리
+                    try:
+                        # 모듈이 이미 로드되어 있다면 재로드
+                        if 'squat_real_tts' in sys.modules:
+                            squat_module = sys.modules['squat_real_tts']
+                            importlib.reload(squat_module)
+                        else:
+                            squat_module = importlib.import_module('squat_real_tts')
+                    except ImportError as import_err:
+                        # PyInstaller 환경에서 모듈을 찾지 못하는 경우
+                        print(f"[ERROR] squat_real_tts 모듈 import 실패: {import_err}")
+                        print(f"[DEBUG] sys.path: {sys.path}")
+                        print(f"[DEBUG] sys.modules에 있는 모듈들: {[m for m in sys.modules.keys() if 'squat' in m]}")
+                        # 직접 import 시도
+                        try:
+                            import squat_real_tts as squat_module
+                        except Exception as e2:
+                            raise ImportError(f"squat_real_tts를 찾을 수 없습니다: {e2}")
 
                     self.status_updated.emit("스쿼트 분석 시작...")
 
@@ -125,7 +169,8 @@ class ExerciseAnalyzerThread(QThread):
                         result = squat_module.run_squat_analysis(
                             self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True, api_client=self.api_client
                         )
-                        video_path, report_path = result[0], result[1]
+                        if result:
+                            video_path, report_path = result[0], result[1]
                     else:
                         self.error_occurred.emit("분석 함수(run_squat_analysis)를 찾을 수 없습니다.")
                         return
@@ -144,11 +189,19 @@ class ExerciseAnalyzerThread(QThread):
                     import importlib
                     import sys
 
-                    if 'lunge_realtime' in sys.modules:
-                        lunge_module = sys.modules['lunge_realtime']
-                        importlib.reload(lunge_module)
-                    else:
-                        lunge_module = importlib.import_module('lunge_realtime')
+                    # PyInstaller 환경에서 모듈 경로 처리
+                    try:
+                        if 'lunge_realtime' in sys.modules:
+                            lunge_module = sys.modules['lunge_realtime']
+                            importlib.reload(lunge_module)
+                        else:
+                            lunge_module = importlib.import_module('lunge_realtime')
+                    except ImportError as import_err:
+                        print(f"[ERROR] lunge_realtime 모듈 import 실패: {import_err}")
+                        try:
+                            import lunge_realtime as lunge_module
+                        except Exception as e2:
+                            raise ImportError(f"lunge_realtime을 찾을 수 없습니다: {e2}")
 
                     self.status_updated.emit("런지 분석 시작...")
 
@@ -157,7 +210,8 @@ class ExerciseAnalyzerThread(QThread):
                         result = lunge_module.run_lunge_analysis(
                             self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True, api_client=self.api_client
                         )
-                        video_path, report_path = result[0], result[1]
+                        if result:
+                            video_path, report_path = result[0], result[1]
                     else:
                         self.error_occurred.emit("분석 함수(run_lunge_analysis)를 찾을 수 없습니다.")
                         return
@@ -176,11 +230,19 @@ class ExerciseAnalyzerThread(QThread):
                     import importlib
                     import sys
 
-                    if 'plank' in sys.modules:
-                        plank_module = sys.modules['plank']
-                        importlib.reload(plank_module)
-                    else:
-                        plank_module = importlib.import_module('plank')
+                    # PyInstaller 환경에서 모듈 경로 처리
+                    try:
+                        if 'plank' in sys.modules:
+                            plank_module = sys.modules['plank']
+                            importlib.reload(plank_module)
+                        else:
+                            plank_module = importlib.import_module('plank')
+                    except ImportError as import_err:
+                        print(f"[ERROR] plank 모듈 import 실패: {import_err}")
+                        try:
+                            import plank as plank_module
+                        except Exception as e2:
+                            raise ImportError(f"plank을 찾을 수 없습니다: {e2}")
 
                     self.status_updated.emit("플랭크 분석 시작...")
 
@@ -190,7 +252,8 @@ class ExerciseAnalyzerThread(QThread):
                         result = plank_module.run_plank_analysis(
                             self.duration_seconds, self.should_stop, self.frame_callback, is_gui_mode=True, api_client=self.api_client
                         )
-                        video_path, report_path = result[0], result[1]
+                        if result:
+                            video_path, report_path = result[0], result[1]
                     else:
                         self.error_occurred.emit("분석 함수(run_plank_analysis)를 찾을 수 없습니다.")
                         return
@@ -209,11 +272,12 @@ class ExerciseAnalyzerThread(QThread):
                 print("[DEBUG] 분석이 중지되었습니다.")
                 return
 
-            if video_path and report_path:
+            if video_path and report_path and result:
                 # API 결과도 함께 전달
-                json_data = result[2] if len(result) > 2 else None
-                api_result = result[3] if len(result) > 3 else None
-                self.analysis_finished.emit(video_path, report_path, json_data, api_result)
+                json_path = result[2] if len(result) > 2 else None
+                json_data = result[3] if len(result) > 3 else None
+                api_result = result[4] if len(result) > 4 else None
+                self.analysis_finished.emit(video_path, report_path, json_path, json_data, api_result)
             else:
                 self.error_occurred.emit("분석이 알 수 없는 이유로 실패했습니다.")
 
@@ -382,20 +446,17 @@ class CameraThread(QThread):
             self.wait(1000)
 
 
-class MainWindow(QMainWindow):
-    """메인 윈도우 - PySide6 버전"""
+class MainWindow(QWidget):
+    """메인 윈도우 - PySide6 버전 (QWidget으로 변경하여 QStackedWidget에 추가 가능하도록)"""
     # 토큰 설정 화면으로 돌아가기 시그널
     go_to_token_screen = Signal()
     
     def __init__(self, access_token=None):
         super().__init__()
-        self.setWindowTitle("Re:PiT - 운동 자세 분석 시스템")
-        self.setGeometry(100, 100, 1200, 800)
+        # QMainWindow 대신 QWidget을 사용하므로 setWindowTitle 대신 변수로 저장
+        self.window_title = "Re:PiT - 운동 자세 분석 시스템"
         
-        # 윈도우 아이콘 설정
-        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        # QWidget에는 setWindowIcon이 없으므로 제거 (부모 윈도우에서 설정됨)
 
         # 변수 초기화
         self.duration_seconds = 60
@@ -408,22 +469,50 @@ class MainWindow(QMainWindow):
         # API 관련 변수
         self.access_token = access_token
         self.api_client = None
-        if self.access_token:
-            self.api_client = RepitAPIClient(access_token=self.access_token)
+        
+        try:
+            if self.access_token:
+                self.api_client = RepitAPIClient(access_token=self.access_token)
+        except Exception as e:
+            print(f"[WARNING] API 클라이언트 생성 실패: {e}")
 
         # 경과 시간 타이머
         self.elapsed_time = 0
         self.analysis_timer = QTimer(self)
         self.analysis_timer.timeout.connect(self.update_timer_display)
 
-        self.init_ui()
-        self.start_camera()
+        try:
+            print("[DEBUG] init_ui 시작...")
+            self.init_ui()
+            print("[DEBUG] init_ui 완료")
+        except Exception as e:
+            print(f"[ERROR] init_ui 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            # UI는 최소한으로라도 표시되도록 함
+            try:
+                error_label = QLabel(f"UI 초기화 오류: {str(e)}\n\n앱을 재시작해주세요.")
+                error_layout = QVBoxLayout(self)
+                error_layout.addWidget(error_label)
+            except:
+                pass
+            return
+        
+        try:
+            print("[DEBUG] start_camera 시작...")
+            self.start_camera()
+            print("[DEBUG] start_camera 완료")
+        except Exception as e:
+            print(f"[WARNING] 카메라 시작 실패 (계속 진행): {e}")
+            import traceback
+            traceback.print_exc()
+            # 카메라는 선택사항이므로 실패해도 계속 진행
 
     def init_ui(self):
         """UI 초기화"""
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+        # QWidget에서는 직접 레이아웃 설정 (setCentralWidget 없음)
+        main_layout = QHBoxLayout(self)
+        self.setLayout(main_layout)
 
         # 왼쪽 패널
         left_panel = self.create_left_panel()
@@ -789,7 +878,7 @@ class MainWindow(QMainWindow):
         """상태 업데이트"""
         self.status_label.setText(status_msg)
 
-    def on_analysis_finished(self, video_path, report_path, json_data=None, api_result=None):
+    def on_analysis_finished(self, video_path, report_path, json_path=None, json_data=None, api_result=None):
         """분석 완료 처리"""
         self.stop_analysis(finished_naturally=True)
 
@@ -800,43 +889,123 @@ class MainWindow(QMainWindow):
 📄 리포트: {os.path.basename(report_path)}
 📁 위치: {os.path.dirname(video_path)}
 """
+        server_status_lines = []
+        
+        # API 전송 결과 처리
+        delete_candidates = []
 
+        if api_result is not None:
+            token_missing = not self.access_token
+            if api_result.get("success", False):
+                # API 전송 성공
+                video_status = ""
+                video_upload_info = api_result.get("video_upload")
+                if video_upload_info:
+                    if video_upload_info.get("success"):
+                        video_status = "\n영상 업로드 및 확정이 완료되었습니다."
+                        server_status_lines.append("• 영상 업로드: 성공")
+                    else:
+                        video_status = f"\n영상 업로드 실패: {video_upload_info.get('message', '사유 미상')}"
+                        server_status_lines.append(f"• 영상 업로드: 실패 ({video_upload_info.get('message', '사유 미상')})")
+                else:
+                    server_status_lines.append("• 영상 업로드: 응답에 정보가 없어 미확인")
+                
+                QMessageBox.information(
+                    self,
+                    "전송 완료",
+                    "운동 기록이 서버에 성공적으로 저장되었습니다.\n"
+                    "📹 비디오와 📄 리포트는 로컬에도 저장되었습니다."
+                    f"{video_status}"
+                )
+                if api_result.get("data", {}).get("result", {}).get("record_id"):
+                    record_id = api_result["data"]["result"]["record_id"]
+                    print(f"✅ 저장된 기록 ID: {record_id}")
+                    server_status_lines.insert(0, f"• 운동 기록: 성공 (record_id={record_id})")
+                else:
+                    server_status_lines.insert(0, "• 운동 기록: 성공 (record_id 미응답)")
+
+                # 로컬 파일 정리 조건: 영상 업로드까지 성공했을 때만
+                if video_upload_info and video_upload_info.get("success"):
+                    delete_candidates = [video_path, report_path, json_path]
+            else:
+                # API 전송 실패
+                error_message = api_result.get("message") or "알 수 없는 오류"
+                video_upload_info = api_result.get("video_upload")
+
+                token_related_failure = token_missing or ("토큰" in error_message)
+                generic_failure = error_message.strip() in ("", "알 수 없는 오류", "Unknown error")
+
+                if token_related_failure or generic_failure and token_missing:
+                    info_message = (
+                        "토큰 정보를 확인할 수 없어 서버 전송을 생략했습니다.\n"
+                        "📹 비디오와 📄 리포트는 로컬에만 저장됩니다."
+                    )
+                    QMessageBox.information(self, "전송 생략", info_message)
+                    server_status_lines.append("• 운동 기록: 토큰 미설정으로 전송 생략")
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "전송 실패",
+                        f"운동 기록 서버 전송에 실패했습니다.\n\n"
+                        f"오류: {error_message}\n\n"
+                        f"📹 비디오와 📄 리포트는 로컬에 저장되었습니다."
+                    )
+                    server_status_lines.append(f"• 운동 기록: 실패 ({error_message})")
+
+                if video_upload_info:
+                    if video_upload_info.get("success"):
+                        server_status_lines.append("• 영상 업로드: 성공")
+                    else:
+                        server_status_lines.append(f"• 영상 업로드: 실패 ({video_upload_info.get('message', '사유 미상')})")
+        elif not self.access_token:
+            message = (
+                "토큰을 입력하지 않아 서버 전송을 생략했습니다.\n"
+                "📹 비디오와 📄 리포트는 로컬에만 저장됩니다."
+            )
+            QMessageBox.information(self, "전송 생략", message)
+            print("ℹ️  토큰이 없어 로컬에만 저장됩니다.")
+            server_status_lines.append("• 운동 기록: 토큰 미설정으로 전송 생략")
+            server_status_lines.append("• 영상 업로드: 토큰 미설정으로 생략")
+        else:
+            # 토큰은 있으나 api_result 자체가 None인 경우
+            server_status_lines.append("• 운동 기록: 전송 정보를 확인할 수 없습니다.")
+        
         # 리포트 내용 읽기
         report_content = ""
         try:
             with open(report_path, 'r', encoding='utf-8') as f:
                 report_content = f.read()
-
-            full_result = summary + "\n" + "="*50 + "\n상세 분석 결과\n" + "="*50 + "\n\n" + report_content
-            self.result_text.setText(full_result)
         except Exception as e:
-            self.result_text.setText(summary + f"\n리포트 파일을 읽을 수 없습니다: {e}")
+            report_content = f"리포트 파일을 읽을 수 없습니다: {e}"
         
-        # API 전송 결과 처리
-        if api_result is not None:
-            if api_result.get("success", False):
-                # API 전송 성공
-                QMessageBox.information(
-                    self,
-                    "전송 완료",
-                    "운동 기록이 서버에 성공적으로 저장되었습니다.\n\n"
-                    "📹 비디오와 📄 리포트는 로컬에 저장되었습니다."
-                )
-                if api_result.get("data", {}).get("result", {}).get("record_id"):
-                    record_id = api_result["data"]["result"]["record_id"]
-                    print(f"✅ 저장된 기록 ID: {record_id}")
-            else:
-                # API 전송 실패
-                error_message = api_result.get("message", "알 수 없는 오류")
-                QMessageBox.warning(
-                    self,
-                    "전송 실패",
-                    f"운동 기록 서버 전송에 실패했습니다.\n\n"
-                    f"오류: {error_message}\n\n"
-                    f"📹 비디오와 📄 리포트는 로컬에 저장되었습니다."
-                )
-        elif not self.access_token:
-            print("ℹ️  토큰이 없어 로컬에만 저장됩니다.")
+        # 로컬 파일 삭제 (필요 시)
+        deleted_files = []
+        if delete_candidates:
+            for file_path in delete_candidates:
+                if file_path and os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        deleted_files.append(file_path)
+                        print(f"🧹 서버 전송 성공으로 로컬 파일 삭제: {file_path}")
+                    except Exception as e:
+                        print(f"⚠️ 로컬 파일 삭제 실패 ({file_path}): {e}")
+            if deleted_files:
+                server_status_lines.append("• 로컬 파일: 서버 전송 성공으로 자동 삭제")
+
+        server_status_section = ""
+        if server_status_lines:
+            server_status_section = (
+                "\n" + "=" * 50 + "\n서버 전송 상태\n" + "=" * 50 + "\n"
+                + "\n".join(server_status_lines) + "\n"
+            )
+        
+        full_result = (
+            summary
+            + server_status_section
+            + "\n" + "="*50 + "\n상세 분석 결과\n" + "="*50 + "\n\n"
+            + report_content
+        )
+        self.result_text.setText(full_result)
 
         # 상태 업데이트
         self.status_label.setText("분석 완료!")

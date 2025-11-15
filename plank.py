@@ -2,6 +2,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import os
+import sys
 import time
 import threading
 import queue
@@ -9,6 +10,55 @@ import subprocess
 from typing import List, Dict, Tuple, Optional
 from collections import Counter as GradeCounter
 import json
+
+from analysis_postprocess import send_record_and_upload
+
+# PyInstaller 환경에서 MediaPipe 모델 경로 설정
+def get_mediapipe_path():
+    """PyInstaller 환경에서 MediaPipe 경로 가져오기"""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+            mediapipe_path = os.path.join(base_path, 'mediapipe')
+            model_path = os.path.join(mediapipe_path, 'modules', 'pose_landmark', 'pose_landmark_cpu.binarypb')
+            if os.path.exists(model_path):
+                os.environ['MEDIAPIPE_DISABLE_GPU'] = '1'
+                return mediapipe_path
+    except Exception as e:
+        print(f"[WARNING] MediaPipe 경로 설정 실패: {e}")
+    
+    try:
+        import mediapipe as mp
+        return os.path.dirname(mp.__file__)
+    except:
+        return None
+
+def get_output_dir():
+    """사용자 쓰기 가능한 output 디렉토리 가져오기"""
+    try:
+        if getattr(sys, 'frozen', False):
+            # PyInstaller 환경: 사용자 Documents 폴더 사용 (쓰기 가능)
+            home_dir = os.path.expanduser("~")
+            output_dir = os.path.join(home_dir, "Documents", "RePiT", "output")
+        else:
+            # 개발 환경: 스크립트 위치 기준
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            output_dir = os.path.join(script_dir, "output")
+        
+        # 디렉토리 생성 (이미 존재해도 에러 없음)
+        os.makedirs(output_dir, exist_ok=True)
+        return output_dir
+    except Exception as e:
+        print(f"[WARNING] output 디렉토리 생성 실패: {e}")
+        # 폴백: 홈 디렉토리
+        fallback_dir = os.path.join(os.path.expanduser("~"), "RePiT_output")
+        os.makedirs(fallback_dir, exist_ok=True)
+        return fallback_dir
+
+# MediaPipe 경로 설정
+mediapipe_path = get_mediapipe_path()
+if mediapipe_path:
+    os.environ['GLOG_logtostderr'] = '1'
 
 # Qt 스레딩 지원 추가
 try:
@@ -21,10 +71,18 @@ except ImportError:
     except ImportError:
         QT_AVAILABLE = False
 
-# MediaPipe Pose 모델 초기화
-mp_pose = mp.solutions.pose
-pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-mp_drawing = mp.solutions.drawing_utils
+# MediaPipe Pose 모델 초기화 (PyInstaller 환경 대응)
+try:
+    mp_pose = mp.solutions.pose
+    pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+    mp_drawing = mp.solutions.drawing_utils
+except Exception as e:
+    print(f"[ERROR] MediaPipe 초기화 실패: {e}")
+    import traceback
+    traceback.print_exc()
+    mp_pose = None
+    pose = None
+    mp_drawing = None
 
 class UniversalTTS(QObject if QT_AVAILABLE else object):
     """모든 플랫폼에서 작동하는 TTS 시스템 (Qt 호환)"""
@@ -610,27 +668,49 @@ def save_json_report(json_path: str, hold_results: List[Dict], total_duration: i
     # 총 유지 시간 계산
     total_hold_time = sum(res['duration'] for res in hold_results)
     
-    # 리포트 텍스트 생성
-    analysis_text = f"실시간 플랭크 자세 분석 리포트 (TTS 피드백 포함)\n"
-    analysis_text += f"총 플랭크 유지 시간: {total_hold_time:.2f}초\n\n"
-    
-    if hold_results:
-        analysis_text += "구간별 상세 결과:\n"
-        for i, res in enumerate(hold_results):
-            grade = res['grade']
-            duration = res['duration']
-            errors = res['errors']
+    # 리포트 텍스트 생성 - 리포트 파일의 전체 내용을 읽어서 포함
+    analysis_text = ""
+    try:
+        # 리포트 파일 경로 생성 (json_path와 같은 디렉토리의 .txt 파일)
+        report_dir = os.path.dirname(json_path)
+        # JSON 파일명에서 analysis를 report로 변경하고 확장자를 txt로 변경
+        report_filename = os.path.basename(json_path).replace('analysis', 'report').replace('.json', '.txt')
+        report_path = os.path.join(report_dir, report_filename)
+        
+        # 리포트 파일이 존재하면 전체 내용을 읽어옴
+        if os.path.exists(report_path):
+            with open(report_path, 'r', encoding='utf-8') as f:
+                analysis_text = f.read()
+            print(f"리포트 파일 내용을 analysis_text에 포함: {report_path}")
+        else:
+            print(f"리포트 파일을 찾을 수 없음: {report_path}")
+            # 리포트 파일이 없으면 기본 정보 생성
+            analysis_text = f"실시간 플랭크 자세 분석 리포트 (TTS 피드백 포함)\n"
+            analysis_text += f"총 플랭크 유지 시간: {total_hold_time:.2f}초\n\n"
             
-            analysis_text += f"\n--- {i+1}번째 구간 (유지 시간: {duration:.2f}초): 등급 {grade} ---\n"
-            if errors:
-                analysis_text += "  [주요 발생 오류]\n"
-                # 오류를 빈도순으로 정렬
-                sorted_errors = sorted(errors.items(), key=lambda item: item[1], reverse=True)
-                for error_key, count in sorted_errors:
-                    error_description = ERROR_CRITERIA_MAP.get(error_key, "알 수 없는 오류")
-                    analysis_text += f"  - {error_description} ({count}회 감지)\n"
-            else:
-                analysis_text += "  - 모든 기준을 만족했습니다.\n"
+            if hold_results:
+                analysis_text += "구간별 상세 결과:\n"
+                for i, res in enumerate(hold_results):
+                    grade = res['grade']
+                    duration = res['duration']
+                    errors = res['errors']
+                    
+                    analysis_text += f"\n--- {i+1}번째 구간 (유지 시간: {duration:.2f}초): 등급 {grade} ---\n"
+                    if errors:
+                        analysis_text += "  [주요 발생 오류]\n"
+                        # 오류를 빈도순으로 정렬
+                        sorted_errors = sorted(errors.items(), key=lambda item: item[1], reverse=True)
+                        for error_key, count in sorted_errors:
+                            error_description = ERROR_CRITERIA_MAP.get(error_key, "알 수 없는 오류")
+                            analysis_text += f"  - {error_description} ({count}회 감지)\n"
+                    else:
+                        analysis_text += "  - 모든 기준을 만족했습니다.\n"
+    except Exception as e:
+        print(f"리포트 파일 읽기 오류: {e}")
+        # 오류 발생 시 기본 정보 생성
+        analysis_text = f"실시간 플랭크 자세 분석 리포트 (TTS 피드백 포함)\n"
+        analysis_text += f"총 플랭크 유지 시간: {total_hold_time:.2f}초\n\n"
+        analysis_text += f"리포트 파일 읽기 오류: {str(e)}"
     
     # JSON 데이터 구성
     json_data = {
@@ -699,12 +779,9 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     fps = 30.0
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     
-    # output 디렉토리 생성 및 확인 (현재 스크립트 위치 기준)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_dir = os.path.join(script_dir, "output")
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"output 디렉토리를 생성했습니다: {output_dir}")
+    # output 디렉토리 가져오기 (사용자 쓰기 가능한 위치)
+    output_dir = get_output_dir()
+    print(f"output 디렉토리: {output_dir}")
     
     # 타임스탬프를 포함한 파일명 생성 (output 디렉토리 내)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -1007,21 +1084,7 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     json_data = save_json_report(output_json_path, all_hold_results, duration_seconds)
     
     # API로 데이터 전송 (API 클라이언트가 제공된 경우)
-    api_result = None
-    if api_client:
-        print("API로 운동 기록을 전송 중...")
-        try:
-            api_result = api_client.create_record(json_data)
-            if api_result["success"]:
-                print(f"✓ API 전송 성공: {api_result['message']}")
-                if api_result.get("data", {}).get("result", {}).get("record_id"):
-                    record_id = api_result["data"]["result"]["record_id"]
-                    print(f"  저장된 기록 ID: {record_id}")
-            else:
-                print(f"✗ API 전송 실패: {api_result['message']}")
-        except Exception as e:
-            print(f"✗ API 전송 중 오류 발생: {str(e)}")
-            api_result = {"success": False, "message": str(e)}
+    api_result = send_record_and_upload(api_client, json_data, output_video_path, "plank")
     
     print(f"분석 영상이 '{output_video_path}'에 저장되었습니다.")
     print(f"분석 리포트가 '{output_report_path}'에 저장되었습니다.")
@@ -1030,7 +1093,7 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     print("TTS 피드백이 실시간으로 제공되었습니다.")
     
     # 결과 파일 경로 반환 (JSON 데이터와 API 결과 포함)
-    return output_video_path, output_report_path, json_data, api_result
+    return output_video_path, output_report_path, output_json_path, json_data, api_result
 
 def main():
     """기존 main 함수 (호환성 유지)"""

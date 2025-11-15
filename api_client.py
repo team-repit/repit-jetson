@@ -1,6 +1,6 @@
 import requests
 import json
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Tuple
 import os
 
 class RepitAPIClient:
@@ -127,6 +127,228 @@ class RepitAPIClient:
                 "message": f"API 요청 중 오류 발생: {str(e)}",
                 "data": None
             }
+    
+    def request_video_upload_url(
+        self,
+        record_id: int,
+        file_name: Optional[str] = None,
+        content_type: str = "video/mp4"
+    ) -> Dict[str, Any]:
+        """
+        운동 기록 영상 업로드용 Presigned URL 발급
+        """
+        if not self.access_token:
+            return {
+                "success": False,
+                "message": "액세스 토큰이 설정되지 않았습니다.",
+                "data": None
+            }
+        
+        try:
+            url = f"{self.base_url}/api/record/{record_id}/video/upload-url"
+            payload: Dict[str, Any] = {}
+            if file_name:
+                payload["file_name"] = file_name
+            if content_type:
+                payload["content_type"] = content_type
+            
+            response = self.session.post(url, json=payload if payload else {})
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                return {
+                    "success": True,
+                    "message": response_data.get("message", "Presigned URL을 발급했습니다."),
+                    "data": response_data
+                }
+            else:
+                try:
+                    error_data = response.json()
+                    return {
+                        "success": False,
+                        "message": f"Presigned URL 발급 실패: {error_data.get('message', '알 수 없는 오류')}",
+                        "data": error_data
+                    }
+                except:
+                    return {
+                        "success": False,
+                        "message": f"Presigned URL 발급 실패: HTTP {response.status_code}",
+                        "data": None
+                    }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Presigned URL 발급 중 오류 발생: {str(e)}",
+                "data": None
+            }
+    
+    def confirm_video_upload(self, record_id: int, object_key: str) -> Dict[str, Any]:
+        """
+        업로드된 영상을 레코드에 연결하도록 확정
+        """
+        if not self.access_token:
+            return {
+                "success": False,
+                "message": "액세스 토큰이 설정되지 않았습니다.",
+                "data": None
+            }
+        
+        try:
+            url = f"{self.base_url}/api/record/{record_id}/video/confirm"
+            payload = {"object_key": object_key}
+            response = self.session.post(url, json=payload)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                return {
+                    "success": True,
+                    "message": response_data.get("message", "영상 업로드를 확정했습니다."),
+                    "data": response_data
+                }
+            else:
+                try:
+                    error_data = response.json()
+                    return {
+                        "success": False,
+                        "message": f"영상 업로드 확정 실패: {error_data.get('message', '알 수 없는 오류')}",
+                        "data": error_data
+                    }
+                except:
+                    return {
+                        "success": False,
+                        "message": f"영상 업로드 확정 실패: HTTP {response.status_code}",
+                        "data": None
+                    }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"영상 업로드 확정 중 오류 발생: {str(e)}",
+                "data": None
+            }
+    
+    @staticmethod
+    def upload_file_to_presigned_url(
+        upload_url: str,
+        file_path: str,
+        content_type: str = "video/mp4",
+        extra_headers: Optional[Dict[str, str]] = None
+    ) -> Tuple[bool, str]:
+        """
+        Presigned URL로 파일 업로드 (S3 PUT)
+        """
+        if not os.path.exists(file_path):
+            return False, f"파일을 찾을 수 없습니다: {file_path}"
+        
+        headers = {"Content-Type": content_type}
+        if extra_headers:
+            headers.update(extra_headers)
+        
+        try:
+            with open(file_path, "rb") as file_obj:
+                response = requests.put(upload_url, data=file_obj, headers=headers)
+            
+            if response.status_code in (200, 201, 204):
+                return True, "영상이 S3에 업로드되었습니다."
+            return False, f"S3 업로드 실패: HTTP {response.status_code}"
+        except Exception as e:
+            return False, f"S3 업로드 중 오류 발생: {str(e)}"
+    
+    def upload_record_video(
+        self,
+        record_id: int,
+        video_path: str,
+        content_type: str = "video/mp4"
+    ) -> Dict[str, Any]:
+        """
+        Presigned URL 발급 → S3 업로드 → 업로드 확정까지 수행
+        """
+        if not self.access_token:
+            return {
+                "success": False,
+                "message": "액세스 토큰이 설정되지 않아 영상 업로드를 생략합니다.",
+                "data": None
+            }
+        
+        if not os.path.exists(video_path):
+            return {
+                "success": False,
+                "message": f"영상 파일을 찾을 수 없어 업로드를 생략합니다: {video_path}",
+                "data": None
+            }
+        
+        file_name = os.path.basename(video_path)
+        
+        # 1. Presigned URL 발급
+        presigned_result = self.request_video_upload_url(
+            record_id=record_id,
+            file_name=file_name,
+            content_type=content_type
+        )
+        if not presigned_result["success"]:
+            return {
+                "success": False,
+                "message": f"영상 업로드 URL 발급 실패: {presigned_result['message']}",
+                "data": presigned_result.get("data"),
+                "stage": "request"
+            }
+        
+        presigned_data = presigned_result.get("data", {})
+        result_payload = presigned_data.get("result") if isinstance(presigned_data, dict) else None
+        if not result_payload:
+            return {
+                "success": False,
+                "message": "영상 업로드 URL 응답이 올바르지 않습니다.",
+                "data": presigned_data,
+                "stage": "request"
+            }
+        
+        upload_url = result_payload.get("url")
+        object_key = result_payload.get("object_key")
+        if not upload_url or not object_key:
+            return {
+                "success": False,
+                "message": "영상 업로드 URL 또는 object_key가 응답에 없습니다.",
+                "data": presigned_data,
+                "stage": "request"
+            }
+        
+        # 2. S3 업로드
+        upload_success, upload_message = self.upload_file_to_presigned_url(
+            upload_url=upload_url,
+            file_path=video_path,
+            content_type=content_type
+        )
+        if not upload_success:
+            return {
+                "success": False,
+                "message": upload_message,
+                "data": {
+                    "object_key": object_key,
+                    "upload_url": upload_url
+                },
+                "stage": "upload"
+            }
+        
+        # 3. 업로드 확정
+        confirm_result = self.confirm_video_upload(record_id, object_key)
+        if not confirm_result["success"]:
+            return {
+                "success": False,
+                "message": f"영상 업로드 확정 실패: {confirm_result['message']}",
+                "data": confirm_result.get("data"),
+                "stage": "confirm"
+            }
+        
+        return {
+            "success": True,
+            "message": "영상 업로드 및 확정이 완료되었습니다.",
+            "data": {
+                "object_key": object_key,
+                "upload_result": confirm_result.get("data"),
+                "presigned_result": presigned_data
+            },
+            "stage": "done"
+        }
     
     def get_record(self, record_id: int) -> Dict[str, Any]:
         """

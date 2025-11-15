@@ -5,11 +5,25 @@
 """
 
 import os
+import sys
 import json
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                               QLabel, QLineEdit, QMessageBox, QFrame)
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont, QPixmap
+
+# PyInstaller 환경에서 경로 처리
+def resource_path(relative_path):
+    """PyInstaller 환경에서 리소스 경로 가져오기"""
+    try:
+        # PyInstaller로 빌드된 경우 _MEIPASS 임시 폴더
+        base_path = sys._MEIPASS
+    except Exception:
+        # 일반 Python 실행 환경
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        # ui_pyside6 폴더에서 상위로 이동
+        base_path = os.path.dirname(base_path)
+    return os.path.join(base_path, relative_path)
 
 
 class TokenInputWidget(QWidget):
@@ -31,7 +45,7 @@ class TokenInputWidget(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # 로고 영역
-        logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        logo_path = resource_path("ui_pyside6/logo.png")
         if os.path.exists(logo_path):
             logo_label = QLabel()
             pixmap = QPixmap(logo_path)
