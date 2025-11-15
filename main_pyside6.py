@@ -74,17 +74,41 @@ class AppController(QMainWindow):
         self.current_token = None
         self.show_main_window()
     
+    def _teardown_main_window(self, remove_from_stack=True):
+        """현재 메인 윈도우가 있으면 안전하게 종료 및 제거"""
+        if not self.main_window:
+            return
+
+        try:
+            print("[DEBUG] 기존 MainWindow force_cleanup 실행")
+            self.main_window.force_cleanup()
+        except Exception as e:
+            print(f"[WARNING] 기존 MainWindow force_cleanup 실패: {e}")
+
+        try:
+            self.main_window.close()
+        except Exception as e:
+            print(f"[WARNING] 기존 MainWindow close 실패: {e}")
+
+        if remove_from_stack:
+            try:
+                self.stacked_widget.removeWidget(self.main_window)
+            except Exception as e:
+                print(f"[WARNING] MainWindow 스택 제거 실패: {e}")
+
+        try:
+            self.main_window.deleteLater()
+        except Exception as e:
+            print(f"[WARNING] MainWindow deleteLater 실패: {e}")
+
+        self.main_window = None
+
     def show_main_window(self):
         """메인 윈도우 표시"""
         try:
             # 기존 메인 윈도우가 있다면 제거
             if self.main_window:
-                try:
-                    self.stacked_widget.removeWidget(self.main_window)
-                    self.main_window.deleteLater()
-                except:
-                    pass
-                self.main_window = None
+                self._teardown_main_window()
             
             print("[DEBUG] MainWindow 생성 시작...")
             
@@ -134,6 +158,8 @@ class AppController(QMainWindow):
     def show_token_screen(self):
         """토큰 입력 화면 표시"""
         print("🔄 토큰 설정 화면으로 이동")
+        # 메인 윈도우가 존재하면 안전하게 정리
+        self._teardown_main_window()
         self.stacked_widget.setCurrentWidget(self.token_widget)
 
     def on_app_about_to_quit(self):
@@ -141,7 +167,7 @@ class AppController(QMainWindow):
         try:
             if self.main_window:
                 print("[DEBUG] aboutToQuit: MainWindow 강제 정리")
-                self.main_window.force_cleanup()
+                self._teardown_main_window(remove_from_stack=False)
         except Exception as e:
             print(f"[WARNING] aboutToQuit 정리 실패: {e}")
     
@@ -152,13 +178,8 @@ class AppController(QMainWindow):
             
             # 메인 윈도우가 있다면 정리
             if self.main_window:
-                try:
-                    print("[DEBUG] 메인 윈도우 정리 중...")
-                    # MainWindow의 closeEvent를 명시적으로 호출
-                    self.main_window.close()
-                    self.main_window = None
-                except Exception as e:
-                    print(f"[WARNING] 메인 윈도우 정리 중 오류: {e}")
+                print("[DEBUG] 메인 윈도우 정리 중...")
+                self._teardown_main_window(remove_from_stack=False)
             
             # Qt 이벤트 처리 (스레드 정리 완료 대기)
             from PySide6.QtCore import QCoreApplication
