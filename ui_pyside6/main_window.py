@@ -889,7 +889,7 @@ class MainWindow(QWidget):
             print(f"지연된 분석 시작 오류: {e}")
             self.on_analysis_error(f"분석 시작 오류: {str(e)}")
 
-    def stop_analysis(self, finished_naturally=False):
+    def stop_analysis(self, finished_naturally=False, restart_camera=True):
         """분석 중지"""
         # TTS 매니저 정리
         if hasattr(self, 'tts_manager') and self.tts_manager:
@@ -904,7 +904,8 @@ class MainWindow(QWidget):
         self.analysis_timer.stop()
 
         # 카메라 재시작
-        self.start_camera()
+        if restart_camera:
+            self.start_camera()
 
         # UI 상태 복원
         self.start_button.setEnabled(True)
@@ -1099,69 +1100,56 @@ class MainWindow(QWidget):
         self.update_token_status_display()
         print(f"✅ 액세스 토큰 설정됨 (길이: {len(token) if token else 0})")
 
-    def closeEvent(self, event):
-        """애플리케이션 종료 시 정리 - 강력한 스레드 정리"""
+    def force_cleanup(self):
+        """강제 정리: 스레드, 타이머, TTS 모두 종료 (재시작 없음)"""
         try:
-            print("[DEBUG] 애플리케이션 종료 시작...")
-            
-            # 분석 중이면 먼저 중지
             if self.is_analyzing:
-                print("[DEBUG] 분석 중지 중...")
-                self.stop_analysis(finished_naturally=False)
-            
-            # TTS 매니저 정리
+                print("[DEBUG] 분석 중이라 우선 중지합니다.")
+                self.stop_analysis(finished_naturally=False, restart_camera=False)
+            else:
+                self._stop_analyzer_thread()
+                self._stop_camera_thread()
+
             if hasattr(self, 'tts_manager') and self.tts_manager:
                 try:
                     print("[DEBUG] TTS 매니저 정리 중...")
                     self.tts_manager.stop_tts()
-                    self.tts_manager = None
                 except Exception as e:
                     print(f"[WARNING] TTS 정리 중 오류: {e}")
-            
-            # 카메라 스레드 강력 정리
-            if hasattr(self, 'camera_thread') and self.camera_thread:
-                try:
-                    print("[DEBUG] 카메라 스레드 강력 정리 중...")
-                self._stop_camera_thread(wait_ms=2000)
-                    print("[DEBUG] 카메라 스레드 정리 완료")
-                except Exception as e:
-                    print(f"[WARNING] 카메라 스레드 정리 중 오류: {e}")
-            
-            # 분석 스레드 강력 정리
-            if hasattr(self, 'analyzer_thread') and self.analyzer_thread:
-                try:
-                    print("[DEBUG] 분석 스레드 강력 정리 중...")
-                self._stop_analyzer_thread(wait_ms=2000)
-                    print("[DEBUG] 분석 스레드 정리 완료")
-                except Exception as e:
-                    print(f"[WARNING] 분석 스레드 정리 중 오류: {e}")
+                finally:
+                    self.tts_manager = None
 
-            # 타이머 정리
             if hasattr(self, 'analysis_timer') and self.analysis_timer:
-                try:
-                    if self.analysis_timer.isActive():
-                        self.analysis_timer.stop()
-                    self.analysis_timer.deleteLater()
-                    print("[DEBUG] 타이머 정리 완료")
-                except Exception as e:
-                    print(f"[WARNING] 타이머 정리 중 오류: {e}")
-            
+                if self.analysis_timer.isActive():
+                    self.analysis_timer.stop()
+                self.analysis_timer.deleteLater()
+                self.analysis_timer = None
+                print("[DEBUG] 타이머 정리 완료")
+        except Exception as e:
+            print(f"[ERROR] force_cleanup 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def closeEvent(self, event):
+        """애플리케이션 종료 시 정리 - 강력한 스레드 정리"""
+        try:
+            print("[DEBUG] 애플리케이션 종료 시작...")
+            self.force_cleanup()
+
             # Qt 이벤트 처리 (스레드 정리 완료 대기)
             from PySide6.QtCore import QCoreApplication
             QCoreApplication.processEvents()
-            
+
             # 메모리 정리
             import gc
             gc.collect()
-            
+
             print("[DEBUG] 애플리케이션 종료 완료")
-            
         except Exception as e:
             print(f"[ERROR] 종료 중 오류 발생: {e}")
             import traceback
             traceback.print_exc()
         finally:
-            # 어떤 경우든 이벤트 수락
             event.accept()
 
 

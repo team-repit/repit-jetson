@@ -56,6 +56,11 @@ class AppController(QMainWindow):
         
         # 토큰 입력 화면을 첫 화면으로 설정
         self.stacked_widget.addWidget(self.token_widget)
+
+        # 앱 종료 시 메인 윈도우 자원을 안전하게 정리
+        app = QApplication.instance()
+        if app:
+            app.aboutToQuit.connect(self.on_app_about_to_quit)
         
     def on_token_submitted(self, token):
         """토큰 입력 완료"""
@@ -130,6 +135,15 @@ class AppController(QMainWindow):
         """토큰 입력 화면 표시"""
         print("🔄 토큰 설정 화면으로 이동")
         self.stacked_widget.setCurrentWidget(self.token_widget)
+
+    def on_app_about_to_quit(self):
+        """애플리케이션 종료 직전에 호출되어 자원을 정리"""
+        try:
+            if self.main_window:
+                print("[DEBUG] aboutToQuit: MainWindow 강제 정리")
+                self.main_window.force_cleanup()
+        except Exception as e:
+            print(f"[WARNING] aboutToQuit 정리 실패: {e}")
     
     def closeEvent(self, event):
         """애플리케이션 종료 - 강력한 스레드 정리"""
@@ -232,6 +246,15 @@ def main():
         print("[DEBUG] AppController 생성 완료")
         controller.show()
         print("[DEBUG] AppController 표시 완료")
+
+        import signal
+
+        def handle_signal(signum, frame):
+            print(f"[DEBUG] 신호({signum}) 수신 - 안전 종료 시도")
+            controller.close()
+
+        signal.signal(signal.SIGINT, handle_signal)
+        signal.signal(signal.SIGTERM, handle_signal)
         
         # 이벤트 루프 시작
         print("[DEBUG] 이벤트 루프 시작...")
