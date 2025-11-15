@@ -572,11 +572,11 @@ class ComprehensiveLungeGrader:
             # 부위별 점수 계산 (전체 점수와 동일한 기준 적용)
             if num_part_errors == 0:
                 detail_score = "A"
-            elif num_part_errors <= 2:
+            elif num_part_errors == 1:
                 detail_score = "B"
-            elif num_part_errors <= 4:
+            elif num_part_errors == 2:
                 detail_score = "C"
-            elif num_part_errors <= 6:
+            elif num_part_errors == 3:
                 detail_score = "D"
             else:
                 detail_score = "F"
