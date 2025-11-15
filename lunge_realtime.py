@@ -618,7 +618,7 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
     dominant_grade = grade_counts.most_common(1)[0][0] if grade_counts else "F"
 
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("[실시간 런지 자세 분석 리포트 | TTS 피드백 포함]\n")
+        f.write("[실시간 런지 자세 분석 리포트: TTS 피드백 포함]\n")
         f.write(f"총 런지 횟수: {total_reps}회\n\n")
         
         f.write("[등급별 요약]\n")

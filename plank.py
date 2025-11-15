@@ -573,7 +573,7 @@ def save_report(report_path: str, hold_results: List[Dict]):
     total_hold_time = sum(res['duration'] for res in hold_results)
 
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("[실시간 플랭크 자세 분석 리포트 | TTS 피드백 포함]\n")
+        f.write("[실시간 플랭크 자세 분석 리포트: TTS 피드백 포함]\n")
         f.write(f"총 플랭크 유지 시간: {total_hold_time:.2f}초\n\n")
         
         f.write("[구간별 상세 결과]\n")
