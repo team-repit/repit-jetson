@@ -843,47 +843,56 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
     """분석 결과와 전체 평가 기준을 텍스트 파일로 저장합니다."""
     grades = [res['grade'] for res in results]
     grade_counts = GradeCounter(grades)
+    error_counts = GradeCounter()
+    for res in results:
+        error_counts.update(res['errors'])
+    top_errors = error_counts.most_common(3)
+    dominant_grade = grade_counts.most_common(1)[0][0] if grade_counts else "F"
 
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("실시간 스쿼트 자세 분석 리포트 (TTS 피드백 포함)\n")
-        f.write("=" * 50 + "\n")
+        f.write("[실시간 스쿼트 자세 분석 리포트: TTS 피드백 포함]\n")
         f.write(f"총 스쿼트 횟수: {total_reps}회\n\n")
-
-        f.write("등급별 요약:\n")
+        
+        f.write("[등급별 요약]\n")
         for grade in ["A", "B", "C", "D", "F"]:
             count = grade_counts.get(grade, 0)
             f.write(f"- 등급 {grade}: {count}회\n")
 
-        f.write("\n" + "=" * 50 + "\n")
-        f.write("반복별 상세 결과:\n")
+        f.write("\n[핵심 요약]\n")
+        if total_reps > 0:
+            f.write(f"- 가장 자주 기록된 등급: {dominant_grade}\n")
+        else:
+            f.write("- 측정된 스쿼트가 없어 기본 가이드를 제공합니다.\n")
+        if top_errors:
+            f.write("- 자주 나온 교정 포인트:\n")
+            for name, count in top_errors:
+                desc = ERROR_CRITERIA_MAP.get(name, name)
+                f.write(f"  · {desc} ({count}회)\n")
+        else:
+            f.write("- 눈에 띄는 오류가 기록되지 않았습니다.\n")
+        
+        f.write("\n[반복별 상세 결과]\n")
         for res in results:
-            f.write(f"\n--- {res['rep']}회차: 등급 {res['grade']} ---\n")
+            f.write(f"\n({res['rep']}회차) 등급 {res['grade']}\n")
             if res['errors']:
-                f.write("  [수행하지 못한 기준]\n")
                 for error_key in sorted(res['errors']):
                     error_description = ERROR_CRITERIA_MAP.get(error_key, "알 수 없는 오류")
                     f.write(f"  - {error_description}\n")
             else:
                 f.write("  - 모든 기준을 만족했습니다.\n")
-
-        # 전체 평가 기준 추가
-        f.write("\n\n" + "=" * 50 + "\n")
-        f.write("          자세 평가 기준 (참고)\n")
-        f.write("=" * 50 + "\n\n")
-
-        f.write("1. 스쿼트 (Squat) 종합 기준\n")
-        f.write("-------------------------\n")
-        f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상 (적당히 완화된 기준)\n")
-        f.write("- 허리 말림 (Butt Wink): 하강 최저점에서 엉덩이가 안으로 말리며 허리의 중립이 무너지는 현상. (각도 < 55도)\n")
-        f.write("- 무릎 모임 (Knee Valgus): 하강 또는 상승 시 무릎이 발보다 안쪽으로 무너지는 현상. (무릎 간격 < 발목 간격의 75%)\n")
-        f.write("- \"굿모닝\" 스쿼트: 상승 시 엉덩이가 상체보다 현저히 빠르게 올라와 허리에 과부하가 걸리는 현상.\n\n")
-        f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상 (적당히 완화된 기준)\n")
-        f.write("- 과도한 상체 숙임 (Chest Drop): 힙 힌지 범위를 넘어 상체가 과도하게 앞으로 쏠리는 자세. (각도 < 40도)\n")
-        f.write("- 뒤꿈치 들림 (Heel Lift): 무게 중심이 앞으로 쏠려 뒤꿈치가 바닥에서 뜨는 현상. (가시성 < 60%)\n")
-        f.write("- 골반 치우침 (Pelvic Shift): 하강 또는 상승 시 골반이 좌우 한쪽으로 쏠리는 현상. (치우침 > 어깨 폭의 20%)\n\n")
-        f.write("레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)\n")
-        f.write("- 깊이 부족 (Insufficient Depth): 허벅지가 지면과 평행이 되는 지점(무릎 각도 약 110~130도)까지 충분히 하강하지 못하는 경우.\n")
-        f.write("- 발목 가동성 부족 (Ankle Mobility): 스쿼트 최저점에서 발목 각도(배굴곡)가 약 20도 미만으로, 가동 범위가 제한되는 경우.\n\n")
+        
+        f.write("\n[자세 평가 기준 요약]\n")
+        f.write("레벨 1 - 안전성\n")
+        f.write("  · 허리 말림: 하강 최저점에서 허리가 무너짐 (각도 < 55도)\n")
+        f.write("  · 무릎 모임: 무릎 간격이 발목 간격의 75% 미만\n")
+        f.write("  · 굿모닝 스쿼트: 엉덩이가 상체보다 먼저 올라감\n")
+        f.write("레벨 2 - 효과성\n")
+        f.write("  · 상체 숙임: 상체 각도 40도 미만\n")
+        f.write("  · 뒤꿈치 들림: 뒤꿈치 가시성 60% 미만\n")
+        f.write("  · 골반 치우침: 골반 중심이 어깨 폭의 20% 이상 벗어남\n")
+        f.write("레벨 3 - 최적화\n")
+        f.write("  · 깊이 부족: 무릎 각도 130도 초과\n")
+        f.write("  · 발목 가동성 부족: 발목 각도 85도 초과\n")
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
@@ -937,6 +946,13 @@ def save_json_report(json_path: str, total_reps: int, results: List[Dict], total
             "body_part": body_part,
             "detail_score": final_grade
         })
+
+    required_body_parts = ["허리", "무릎", "골반", "발목"]
+    reordered_scores = []
+    existing = {score["body_part"]: score for score in final_body_part_scores}
+    for part in required_body_parts:
+        reordered_scores.append(existing.get(part, {"body_part": part, "detail_score": "F"}))
+    final_body_part_scores = reordered_scores
     
     # 리포트 텍스트 생성 - 리포트 파일의 전체 내용을 읽어서 포함
     analysis_text = ""

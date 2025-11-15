@@ -572,11 +572,10 @@ def save_report(report_path: str, hold_results: List[Dict]):
     total_hold_time = sum(res['duration'] for res in hold_results)
 
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("실시간 플랭크 자세 분석 리포트 (TTS 피드백 포함)\n")
-        f.write("="*50 + "\n")
+        f.write("[실시간 플랭크 자세 분석 리포트 | TTS 피드백 포함]\n")
         f.write(f"총 플랭크 유지 시간: {total_hold_time:.2f}초\n\n")
         
-        f.write("구간별 상세 결과:\n")
+        f.write("[구간별 상세 결과]\n")
         if not hold_results:
             f.write("- 플랭크 자세가 감지되지 않았습니다.\n")
         
@@ -584,32 +583,24 @@ def save_report(report_path: str, hold_results: List[Dict]):
             grade = res['grade']
             duration = res['duration']
             errors = res['errors']
-            f.write(f"\n--- {i+1}번째 구간 (유지 시간: {duration:.2f}초): 등급 {grade} ---\n")
+            f.write(f"\n({i+1}번째 구간) 유지 시간 {duration:.2f}초 · 등급 {grade}\n")
             if errors:
-                f.write("  [주요 발생 오류]\n")
-                # 가장 많이 발생한 오류 순으로 정렬
                 sorted_errors = sorted(errors.items(), key=lambda item: item[1], reverse=True)
                 for error_key, count in sorted_errors:
                     error_description = ERROR_CRITERIA_MAP.get(error_key, "알 수 없는 오류")
-                    f.write(f"  - {error_description} ({count}회 감지)\n")
+                    f.write(f"  - {error_description} ({count}회)\n")
             else:
                 f.write("  - 모든 기준을 만족했습니다.\n")
 
-        # 전체 평가 기준 추가
-        f.write("\n\n" + "="*50 + "\n")
-        f.write("          자세 평가 기준 (참고)\n")
-        f.write("="*50 + "\n\n")
-
-        f.write("1. 플랭크 (Plank) 종합 기준\n")
-        f.write("-------------------------\n")
-        f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상\n")
-        f.write("- 엉덩이 처짐 (Hip Sag / 허리 꺾임): 어깨-엉덩이-발목 각도 > 200도\n\n")
-        f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상\n")
-        f.write("- 엉덩이 솟음 (Hip Pike): 어깨-엉덩이-발목 각도 < 150도\n")
-        f.write("- 고개 떨굼 / 젖힘 (Head/Neck Misalignment): 귀-어깨-엉덩이 각도가 150도~210도 범위를 벗어남\n\n")
-        f.write("레벨 3: 최적화 (Optimization) - 미세 조정\n")
-        f.write("- 팔꿈치/손목 정렬 불량 (Elbow/Wrist Misalignment): 어깨-팔꿈치-손목 각도가 60도~120도 범위를 벗어나거나, 팔꿈치가 어깨 수직선상에서 벗어남\n")
-        f.write("- 무릎 굽힘 (Knee Bend): 고관절-무릎-발목 각도 < 150도\n\n")
+        f.write("\n[자세 평가 기준 요약]\n")
+        f.write("레벨 1 - 안전성\n")
+        f.write("  · 엉덩이 처짐: 어깨-엉덩이-발목 각도 200도 초과\n")
+        f.write("레벨 2 - 효과성\n")
+        f.write("  · 엉덩이 솟음: 어깨-엉덩이-발목 각도 150도 미만\n")
+        f.write("  · 고개 정렬 불량: 귀-어깨-엉덩이 각도가 150~210도 범위를 벗어남\n")
+        f.write("레벨 3 - 최적화\n")
+        f.write("  · 팔꿈치 정렬 불량: 어깨-팔꿈치-손목 각도가 60~120도 범위를 벗어나거나 수직선상에서 벗어남\n")
+        f.write("  · 무릎 굽힘: 고관절-무릎-발목 각도 150도 미만\n")
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
@@ -664,6 +655,13 @@ def save_json_report(json_path: str, hold_results: List[Dict], total_duration: i
             "body_part": body_part,
             "detail_score": final_grade
         })
+
+    required_body_parts = ["골반", "목", "팔", "다리"]
+    reordered_scores = []
+    existing = {score["body_part"]: score for score in final_body_part_scores}
+    for part in required_body_parts:
+        reordered_scores.append(existing.get(part, {"body_part": part, "detail_score": "F"}))
+    final_body_part_scores = reordered_scores
     
     # 총 유지 시간 계산
     total_hold_time = sum(res['duration'] for res in hold_results)

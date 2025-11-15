@@ -610,46 +610,55 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
     """분석 결과와 전체 평가 기준을 텍스트 파일로 저장합니다."""
     grades = [res['grade'] for res in results]
     grade_counts = GradeCounter(grades)
+    error_counts = GradeCounter()
+    for res in results:
+        error_counts.update(res['errors'])
+    top_errors = error_counts.most_common(3)
+    dominant_grade = grade_counts.most_common(1)[0][0] if grade_counts else "F"
 
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("실시간 런지 자세 분석 리포트 (TTS 피드백 포함)\n")
-        f.write("="*50 + "\n")
+        f.write("[실시간 런지 자세 분석 리포트 | TTS 피드백 포함]\n")
         f.write(f"총 런지 횟수: {total_reps}회\n\n")
         
-        f.write("등급별 요약:\n")
+        f.write("[등급별 요약]\n")
         for grade in ["A", "B", "C", "D", "F"]:
             count = grade_counts.get(grade, 0)
             f.write(f"- 등급 {grade}: {count}회\n")
+
+        f.write("\n[핵심 요약]\n")
+        if total_reps > 0:
+            f.write(f"- 가장 자주 기록된 등급: {dominant_grade}\n")
+        else:
+            f.write("- 측정된 런지가 없어 기본 가이드를 제공합니다.\n")
+        if top_errors:
+            f.write("- 자주 나온 교정 포인트:\n")
+            for name, count in top_errors:
+                desc = ERROR_CRITERIA_MAP.get(name, name)
+                f.write(f"  · {desc} ({count}회)\n")
+        else:
+            f.write("- 눈에 띄는 오류가 기록되지 않았습니다.\n")
         
-        f.write("\n" + "="*50 + "\n")
-        f.write("반복별 상세 결과:\n")
+        f.write("\n[반복별 상세 결과]\n")
         for res in results:
-            f.write(f"\n--- {res['rep']}회차: 등급 {res['grade']} ---\n")
+            f.write(f"\n({res['rep']}회차) 등급 {res['grade']}\n")
             if res['errors']:
-                f.write("  [수행하지 못한 기준]\n")
                 for error_key in sorted(res['errors']):
                     error_description = ERROR_CRITERIA_MAP.get(error_key, "알 수 없는 오류")
                     f.write(f"  - {error_description}\n")
             else:
                 f.write("  - 모든 기준을 만족했습니다.\n")
 
-        # 전체 평가 기준 추가
-        f.write("\n\n" + "="*50 + "\n")
-        f.write("          자세 평가 기준 (참고)\n")
-        f.write("="*50 + "\n\n")
-
-        f.write("1. 런지 (Lunge) 종합 기준\n")
-        f.write("-------------------------\n")
-        f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상 (적당히 완화된 기준)\n")
-        f.write("- 측면 불안정성: 어깨/엉덩이 선이 수평에서 ±20도 이상 벗어남\n")
-        f.write("- 무릎 모임 (Knee Valgus): 앞 무릎이 엉덩이-발목 선보다 안쪽으로 30px 이상 들어옴\n")
-        f.write("- 과도한 무릎 전진: 앞 무릎이 발목보다 40px 이상 앞으로 나감\n\n")
-        f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상 (적당히 완화된 기준)\n")
-        f.write("- 상체 숙여짐: 상체가 수직선 대비 30도 이상 기울어짐 (각도 60도 미만)\n")
-        f.write("- 부족한 깊이: 앞/뒤 무릎 각도가 120도를 넘음\n")
-        f.write("- 좁은 스탠스: 발목 간격이 어깨너비의 20% 미만\n\n")
-        f.write("레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)\n")
-        f.write("- 앞발목 가동성 부족: 앞발목 각도가 95도를 넘음 (배측 굴곡 부족)\n\n")
+        f.write("\n[자세 평가 기준 요약]\n")
+        f.write("레벨 1 - 안전성\n")
+        f.write("  · 측면 불안정성: 어깨/엉덩이 선이 수평에서 ±20도 이상 벗어남\n")
+        f.write("  · 무릎 모임: 앞 무릎이 엉덩이-발목 선보다 30px 이상 안쪽\n")
+        f.write("  · 과도한 무릎 전진: 앞 무릎이 발목보다 40px 이상 전진\n")
+        f.write("레벨 2 - 효과성\n")
+        f.write("  · 상체 숙여짐: 상체 각도 60도 미만\n")
+        f.write("  · 부족한 깊이: 앞/뒤 무릎 각도 120도 초과\n")
+        f.write("  · 좁은 스탠스: 발목 간격이 어깨너비의 20% 미만\n")
+        f.write("레벨 3 - 최적화\n")
+        f.write("  · 앞발목 가동성 부족: 앞발목 각도 95도 초과\n")
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
@@ -703,6 +712,13 @@ def save_json_report(json_path: str, total_reps: int, results: List[Dict], total
             "body_part": body_part,
             "detail_score": final_grade
         })
+
+    required_body_parts = ["무릎", "상체", "골반", "발목"]
+    reordered_scores = []
+    existing = {score["body_part"]: score for score in final_body_part_scores}
+    for part in required_body_parts:
+        reordered_scores.append(existing.get(part, {"body_part": part, "detail_score": "F"}))
+    final_body_part_scores = reordered_scores
     
     # 리포트 텍스트 생성 - 리포트 파일의 전체 내용을 읽어서 포함
     analysis_text = ""
