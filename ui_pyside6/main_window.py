@@ -668,6 +668,10 @@ class MainWindow(QWidget):
 
     def start_camera(self):
         """카메라 시작"""
+        if self.camera_thread and self.camera_thread.isRunning():
+            print("[DEBUG] 기존 카메라 스레드가 실행 중입니다. 새로 시작하지 않습니다.")
+            return
+
         try:
             self.camera_thread = CameraThread()
             self.camera_thread.frame_ready.connect(self.update_camera_frame)
@@ -675,6 +679,48 @@ class MainWindow(QWidget):
             self.camera_thread.start()
         except Exception as e:
             self.on_camera_error(f"카메라 시작 실패: {str(e)}")
+
+    def _stop_camera_thread(self, wait_ms=5000):
+        """카메라 스레드를 안전하게 중지"""
+        if not self.camera_thread:
+            return
+
+        try:
+            print("[DEBUG] 카메라 스레드 종료 대기...")
+            self.camera_thread.stop()
+            if not self.camera_thread.wait(wait_ms):
+                print("[WARNING] 카메라 스레드가 종료 대기 시간 내에 끝나지 않아 강제 종료합니다.")
+                self.camera_thread.terminate()
+                self.camera_thread.wait(1000)
+        except Exception as e:
+            print(f"[WARNING] 카메라 스레드 중지 중 오류: {e}")
+        finally:
+            try:
+                self.camera_thread.deleteLater()
+            except Exception:
+                pass
+            self.camera_thread = None
+
+    def _stop_analyzer_thread(self, wait_ms=5000):
+        """분석 스레드를 안전하게 중지"""
+        if not self.analyzer_thread:
+            return
+
+        try:
+            print("[DEBUG] 분석 스레드 종료 대기...")
+            self.analyzer_thread.stop()
+            if not self.analyzer_thread.wait(wait_ms):
+                print("[WARNING] 분석 스레드가 종료 대기 시간 내에 끝나지 않아 강제 종료합니다.")
+                self.analyzer_thread.terminate()
+                self.analyzer_thread.wait(1000)
+        except Exception as e:
+            print(f"[WARNING] 분석 스레드 중지 중 오류: {e}")
+        finally:
+            try:
+                self.analyzer_thread.deleteLater()
+            except Exception:
+                pass
+            self.analyzer_thread = None
 
     def update_camera_frame(self, frame):
         """카메라 프레임 업데이트"""
@@ -796,13 +842,7 @@ class MainWindow(QWidget):
 
             # 카메라 안전하게 중지
             print("[DEBUG] 카메라 스레드 중지 시작...")
-            if self.camera_thread and self.camera_thread.isRunning():
-                self.camera_thread.stop()
-                # 카메라 완전히 중지될 때까지 대기
-                if not self.camera_thread.wait(5000):  # 5초 대기
-                    print("[WARNING] 카메라 스레드가 정상적으로 종료되지 않음")
-                    self.camera_thread.terminate()
-                    self.camera_thread.wait(2000)
+            self._stop_camera_thread()
 
             self.camera_label.setText("분석 준비 중... 잠시 기다려주세요.")
 
@@ -857,8 +897,7 @@ class MainWindow(QWidget):
             self.tts_manager = None
         
         # 분석 스레드 중지
-        if self.analyzer_thread and self.analyzer_thread.isRunning():
-            self.analyzer_thread.stop()
+        self._stop_analyzer_thread()
 
         # 상태 초기화
         self.is_analyzing = False
@@ -1083,21 +1122,7 @@ class MainWindow(QWidget):
             if hasattr(self, 'camera_thread') and self.camera_thread:
                 try:
                     print("[DEBUG] 카메라 스레드 강력 정리 중...")
-                    if self.camera_thread.isRunning():
-                        # 즉시 중지 신호
-                        self.camera_thread.running = False
-                        self.camera_thread.stop()
-                        
-                        # 1초 대기 후 강제 종료
-                        if not self.camera_thread.wait(1000):
-                            print("[WARNING] 카메라 스레드 강제 종료")
-                            self.camera_thread.terminate()
-                            self.camera_thread.wait(500)
-                        
-                        # 스레드 완전 정리
-                        self.camera_thread.deleteLater()
-                    
-                    self.camera_thread = None
+                self._stop_camera_thread(wait_ms=2000)
                     print("[DEBUG] 카메라 스레드 정리 완료")
                 except Exception as e:
                     print(f"[WARNING] 카메라 스레드 정리 중 오류: {e}")
@@ -1106,21 +1131,7 @@ class MainWindow(QWidget):
             if hasattr(self, 'analyzer_thread') and self.analyzer_thread:
                 try:
                     print("[DEBUG] 분석 스레드 강력 정리 중...")
-                    if self.analyzer_thread.isRunning():
-                        # 즉시 중지 신호
-                        self.analyzer_thread.running = False
-                        self.analyzer_thread.stop()
-                        
-                        # 1초 대기 후 강제 종료
-                        if not self.analyzer_thread.wait(1000):
-                            print("[WARNING] 분석 스레드 강제 종료")
-                            self.analyzer_thread.terminate()
-                            self.analyzer_thread.wait(500)
-                        
-                        # 스레드 완전 정리
-                        self.analyzer_thread.deleteLater()
-                    
-                    self.analyzer_thread = None
+                self._stop_analyzer_thread(wait_ms=2000)
                     print("[DEBUG] 분석 스레드 정리 완료")
                 except Exception as e:
                     print(f"[WARNING] 분석 스레드 정리 중 오류: {e}")
