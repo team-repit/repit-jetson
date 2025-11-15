@@ -60,11 +60,23 @@ pytest tests
 
 ## 빌드 & 배포
 
-| 스크립트 | 설명 |
-|----------|------|
-| `build_exe.py` | Windows/macOS/Linux 공용 PyInstaller 빌드 스크립트. 실행 중인 OS에 맞는 실행 파일을 생성합니다. |
-| `build_jetson.py` | Jetson(Ubuntu 22.04, aarch64)에서 실행 가능한 onedir 빌드(`dist_jetson/RePiT-Jetson/`) 생성. |
-| `build_jetson_app.py` | Jetson 전용 GUI 런처 준비. PyInstaller 빌드 후 설치 디렉터리에 복사하고 `.desktop` 파일을 만들어 바탕화면 아이콘으로 실행할 수 있게 합니다. |
+| 플랫폼 | 권장 스크립트 | 결과물 |
+|--------|---------------|--------|
+| **macOS / Windows / 일반 Linux** | `python3 build_exe.py` | 현재 OS에 맞는 PyInstaller 결과. macOS에선 `dist/RePiT.app` → 옵션으로 `RePiT.dmg`까지 생성 |
+| **Jetson (Ubuntu 22.04, aarch64)** | `python3 build_jetson_app.py` | `dist_jetson/RePiT-Jetson/` + 설치 디렉터리 복사 + `.desktop` 아이콘 |
+
+두 스크립트 모두 실행 중인 플랫폼에서 PyInstaller를 호출하므로, **Mac에서 만든 결과물을 Jetson에서 사용할 수는 없습니다** (아키텍처 차이). Jetson 전용 빌드는 Jetson 장비에서 실행해 주세요.
+
+### macOS 빌드 예시
+
+```bash
+cd ai/application
+rm -rf build dist             # (선택) 기존 산출물 정리
+python3 build_exe.py          # onedir 모드 권장, 끝나면 DMG 여부 질문
+```
+
+- `dist/RePiT.app`을 직접 실행하거나, `dist/RePiT.dmg`를 사용자에게 배포합니다.
+- 보안 경고가 나오면 `System Settings > Privacy & Security > Open Anyway` 또는 `xattr -cr dist/RePiT.app`를 실행하세요.
 
 ### Jetson 빌드 & 설치 예시
 
@@ -78,13 +90,7 @@ python3 build_jetson_app.py \
 # 바탕화면에 생성된 RePiT.desktop 더블클릭 → '신뢰 및 실행' 선택
 ```
 
-빌드만 필요하면 `python3 build_jetson.py`를 사용해 `dist_jetson/RePiT-Jetson/`을 생성하고,
-
-```bash
-tar -czf repit-jetson.tar.gz -C dist_jetson RePiT-Jetson
-```
-
-으로 압축해 배포할 수 있습니다.
+- 설치만 필요한 Jetson에 배포하려면 `dist_jetson/RePiT-Jetson/`을 압축(`tar -czf ...`)해서 옮긴 뒤 풀고, `.desktop` 파일의 `Exec`/`Icon` 경로를 그 위치에 맞게 조정하세요.
 
 ---
 
