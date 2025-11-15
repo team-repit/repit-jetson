@@ -926,6 +926,11 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
             cv2.putText(image, f'TIME: {remaining_time:.1f}s', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                         (255, 255, 255), 2, cv2.LINE_AA)
             cv2.putText(image, 'No Person Detected', (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
+
+            if frame_callback:
+                display_image = cv2.flip(image, 1)
+                frame_callback(display_image.copy())
+
             frame_rate_controller.write(out, image)
             last_recorded_frame = image
             continue

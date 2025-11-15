@@ -1155,7 +1155,8 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
             
             # GUI로 프레임 전달
             if frame_callback:
-                frame_callback(image.copy())
+                display_image = cv2.flip(image, 1)
+                frame_callback(display_image.copy())
             
             frame_rate_controller.write(out, image)
             last_recorded_frame = image

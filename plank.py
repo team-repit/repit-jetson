@@ -865,6 +865,17 @@ def run_plank_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         # 포즈 랜드마크가 감지되지 않은 경우 건너뛰기
         if not results.pose_landmarks:
             print("포즈 랜드마크가 감지되지 않았습니다. 카메라 앞에 사람이 있는지 확인하세요.")
+
+            # 기본 안내 UI
+            cv2.rectangle(image, (0, 0), (frame_width, 120), (245, 117, 16), -1)
+            cv2.putText(image, f'TIME: {remaining_time:.1f}s', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                        (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(image, 'No Person Detected', (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
+
+            if frame_callback:
+                display_image = cv2.flip(image, 1)
+                frame_callback(display_image.copy())
+
             frame_rate_controller.write(out, image)
             last_recorded_frame = image
             continue
