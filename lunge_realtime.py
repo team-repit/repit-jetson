@@ -822,15 +822,16 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         return None, None
     
     # 카메라 설정 (젯슨 딜레이 최소화)
+    target_fps = 15.0
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 원래 해상도 유지
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 원래 해상도 유지
-    cap.set(cv2.CAP_PROP_FPS, 15)            # 15 FPS로 설정
+    cap.set(cv2.CAP_PROP_FPS, target_fps)    # FPS 맞추기
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)      # 버퍼 크기 최소화
     
     # 영상 저장을 위한 설정
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = 30.0
+    fps = target_fps
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     
     # output 디렉토리 가져오기 (사용자 쓰기 가능한 위치)
