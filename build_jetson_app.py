@@ -97,9 +97,28 @@ def copy_to_install(built_dir: Path, install_dir: Path) -> Path:
     return install_dir
 
 
+def ensure_icon_available(install_dir: Path) -> Path:
+    """Jetson 빌드 시 PyInstaller 데이터 경로 차이를 보정한다."""
+
+    root_icon = install_dir / "ui_pyside6" / "logo.png"
+    internal_icon = install_dir / "_internal" / "ui_pyside6" / "logo.png"
+
+    if root_icon.exists():
+        return root_icon
+
+    if internal_icon.exists():
+        root_icon.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(internal_icon, root_icon)
+        return root_icon
+
+    raise FileNotFoundError(
+        f"아이콘 파일을 찾을 수 없습니다: {root_icon} 또는 {internal_icon}"
+    )
+
+
 def create_desktop_file(install_dir: Path, desktop_path: Path, launcher_name: str) -> Path:
     app_binary = install_dir / PYINSTALLER_NAME
-    icon_path = install_dir / "ui_pyside6" / "logo.png"
+    icon_path = ensure_icon_available(install_dir)
 
     desktop_contents = f"""[Desktop Entry]
 Type=Application
