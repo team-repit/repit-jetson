@@ -2,13 +2,63 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import os
+import sys
 import time
 import threading
 import queue
 import subprocess
 from typing import List, Dict, Tuple, Optional
 from collections import Counter as GradeCounter
+
+from analysis_postprocess import send_record_and_upload
 import json
+
+# PyInstaller 환경에서 MediaPipe 모델 경로 설정
+def get_mediapipe_path():
+    """PyInstaller 환경에서 MediaPipe 경로 가져오기"""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+            mediapipe_path = os.path.join(base_path, 'mediapipe')
+            model_path = os.path.join(mediapipe_path, 'modules', 'pose_landmark', 'pose_landmark_cpu.binarypb')
+            if os.path.exists(model_path):
+                os.environ['MEDIAPIPE_DISABLE_GPU'] = '1'
+                return mediapipe_path
+    except Exception as e:
+        print(f"[WARNING] MediaPipe 경로 설정 실패: {e}")
+    
+    try:
+        import mediapipe as mp
+        return os.path.dirname(mp.__file__)
+    except:
+        return None
+
+def get_output_dir():
+    """사용자 쓰기 가능한 output 디렉토리 가져오기"""
+    try:
+        if getattr(sys, 'frozen', False):
+            # PyInstaller 환경: 사용자 Documents 폴더 사용 (쓰기 가능)
+            home_dir = os.path.expanduser("~")
+            output_dir = os.path.join(home_dir, "Documents", "RePiT", "output")
+        else:
+            # 개발 환경: 스크립트 위치 기준
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            output_dir = os.path.join(script_dir, "output")
+        
+        # 디렉토리 생성 (이미 존재해도 에러 없음)
+        os.makedirs(output_dir, exist_ok=True)
+        return output_dir
+    except Exception as e:
+        print(f"[WARNING] output 디렉토리 생성 실패: {e}")
+        # 폴백: 홈 디렉토리
+        fallback_dir = os.path.join(os.path.expanduser("~"), "RePiT_output")
+        os.makedirs(fallback_dir, exist_ok=True)
+        return fallback_dir
+
+# MediaPipe 경로 설정
+mediapipe_path = get_mediapipe_path()
+if mediapipe_path:
+    os.environ['GLOG_logtostderr'] = '1'
 
 # Qt 스레딩 지원 추가
 try:
@@ -35,10 +85,18 @@ except ImportError:
 # 7. 좁은 스탠스: 15% -> 20%로 완화
 # 8. 앞발목 가동성: 90도 -> 95도로 완화
 
-# MediaPipe Pose 모델 초기화
-mp_pose = mp.solutions.pose
-pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-mp_drawing = mp.solutions.drawing_utils
+# MediaPipe Pose 모델 초기화 (PyInstaller 환경 대응)
+try:
+    mp_pose = mp.solutions.pose
+    pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+    mp_drawing = mp.solutions.drawing_utils
+except Exception as e:
+    print(f"[ERROR] MediaPipe 초기화 실패: {e}")
+    import traceback
+    traceback.print_exc()
+    mp_pose = None
+    pose = None
+    mp_drawing = None
 
 class UniversalTTS(QObject if QT_AVAILABLE else object):
     """모든 플랫폼에서 작동하는 TTS 시스템 (Qt 호환)"""
@@ -493,6 +551,43 @@ class ComprehensiveLungeGrader:
         elif num_errors <= 6: return "D"    # 5-6개 오류: D급 (기존 F급)
         else: return "F"                    # 7개 이상: F급 (심각한 경우)
 
+    def get_body_part_scores(self, errors: List[str]) -> List[Dict[str, str]]:
+        """부위별 점수를 반환합니다."""
+        body_part_scores = []
+        
+        # 런지 관련 부위별 오류 매핑
+        body_part_error_mapping = {
+            "무릎": ["무릎 모임", "과도한 무릎 전진", "부족한 깊이"],
+            "상체": ["상체 숙여짐"],
+            "골반": ["좌우 흔들림", "좁은 스탠스"],
+            "발목": ["앞발목 가동성 부족"]
+        }
+        
+        # 각 부위별로 점수 계산
+        for body_part, related_errors in body_part_error_mapping.items():
+            # 해당 부위와 관련된 오류 개수 계산
+            part_errors = [error for error in errors if error in related_errors]
+            num_part_errors = len(part_errors)
+            
+            # 부위별 점수 계산 (전체 점수와 동일한 기준 적용)
+            if num_part_errors == 0:
+                detail_score = "A"
+            elif num_part_errors == 1:
+                detail_score = "B"
+            elif num_part_errors == 2:
+                detail_score = "C"
+            elif num_part_errors == 3:
+                detail_score = "D"
+            else:
+                detail_score = "F"
+            
+            body_part_scores.append({
+                "body_part": body_part,
+                "detail_score": detail_score
+            })
+        
+        return body_part_scores
+
     def get_error_priority(self, error: str) -> str:
         """오류의 우선순위를 반환합니다."""
         safety_errors = ["측면 불안정성", "무릎 모임", "과도한 무릎 전진"]
@@ -515,51 +610,181 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
     """분석 결과와 전체 평가 기준을 텍스트 파일로 저장합니다."""
     grades = [res['grade'] for res in results]
     grade_counts = GradeCounter(grades)
+    error_counts = GradeCounter()
+    for res in results:
+        error_counts.update(res['errors'])
+    top_errors = error_counts.most_common(3)
+    dominant_grade = grade_counts.most_common(1)[0][0] if grade_counts else "F"
 
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("실시간 런지 자세 분석 리포트 (TTS 피드백 포함)\n")
-        f.write("="*50 + "\n")
+        f.write("[실시간 런지 자세 분석 리포트 | TTS 피드백 포함]\n")
         f.write(f"총 런지 횟수: {total_reps}회\n\n")
         
-        f.write("등급별 요약:\n")
+        f.write("[등급별 요약]\n")
         for grade in ["A", "B", "C", "D", "F"]:
             count = grade_counts.get(grade, 0)
             f.write(f"- 등급 {grade}: {count}회\n")
+
+        f.write("\n[핵심 요약]\n")
+        if total_reps > 0:
+            f.write(f"- 가장 자주 기록된 등급: {dominant_grade}\n")
+        else:
+            f.write("- 측정된 런지가 없어 기본 가이드를 제공합니다.\n")
+        if top_errors:
+            f.write("- 자주 나온 교정 포인트:\n")
+            for name, count in top_errors:
+                desc = ERROR_CRITERIA_MAP.get(name, name)
+                f.write(f"  · {desc} ({count}회)\n")
+        else:
+            f.write("- 눈에 띄는 오류가 기록되지 않았습니다.\n")
         
-        f.write("\n" + "="*50 + "\n")
-        f.write("반복별 상세 결과:\n")
+        f.write("\n[반복별 상세 결과]\n")
         for res in results:
-            f.write(f"\n--- {res['rep']}회차: 등급 {res['grade']} ---\n")
+            f.write(f"\n({res['rep']}회차) 등급 {res['grade']}\n")
             if res['errors']:
-                f.write("  [수행하지 못한 기준]\n")
                 for error_key in sorted(res['errors']):
                     error_description = ERROR_CRITERIA_MAP.get(error_key, "알 수 없는 오류")
                     f.write(f"  - {error_description}\n")
             else:
                 f.write("  - 모든 기준을 만족했습니다.\n")
 
-        # 전체 평가 기준 추가
-        f.write("\n\n" + "="*50 + "\n")
-        f.write("          자세 평가 기준 (참고)\n")
-        f.write("="*50 + "\n\n")
-
-        f.write("1. 런지 (Lunge) 종합 기준\n")
-        f.write("-------------------------\n")
-        f.write("레벨 1: 안전성 (Safety) - 즉시 교정 대상 (적당히 완화된 기준)\n")
-        f.write("- 측면 불안정성: 어깨/엉덩이 선이 수평에서 ±20도 이상 벗어남\n")
-        f.write("- 무릎 모임 (Knee Valgus): 앞 무릎이 엉덩이-발목 선보다 안쪽으로 30px 이상 들어옴\n")
-        f.write("- 과도한 무릎 전진: 앞 무릎이 발목보다 40px 이상 앞으로 나감\n\n")
-        f.write("레벨 2: 효과성 (Effectiveness) - 주요 교정 대상 (적당히 완화된 기준)\n")
-        f.write("- 상체 숙여짐: 상체가 수직선 대비 30도 이상 기울어짐 (각도 60도 미만)\n")
-        f.write("- 부족한 깊이: 앞/뒤 무릎 각도가 120도를 넘음\n")
-        f.write("- 좁은 스탠스: 발목 간격이 어깨너비의 20% 미만\n\n")
-        f.write("레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)\n")
-        f.write("- 앞발목 가동성 부족: 앞발목 각도가 95도를 넘음 (배측 굴곡 부족)\n\n")
+        f.write("\n[자세 평가 기준 요약]\n")
+        f.write("레벨 1 - 안전성\n")
+        f.write("  · 측면 불안정성: 어깨/엉덩이 선이 수평에서 ±20도 이상 벗어남\n")
+        f.write("  · 무릎 모임: 앞 무릎이 엉덩이-발목 선보다 30px 이상 안쪽\n")
+        f.write("  · 과도한 무릎 전진: 앞 무릎이 발목보다 40px 이상 전진\n")
+        f.write("레벨 2 - 효과성\n")
+        f.write("  · 상체 숙여짐: 상체 각도 60도 미만\n")
+        f.write("  · 부족한 깊이: 앞/뒤 무릎 각도 120도 초과\n")
+        f.write("  · 좁은 스탠스: 발목 간격이 어깨너비의 20% 미만\n")
+        f.write("레벨 3 - 최적화\n")
+        f.write("  · 앞발목 가동성 부족: 앞발목 각도 95도 초과\n")
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
+def save_json_report(json_path: str, total_reps: int, results: List[Dict], total_duration: int):
+    """분석 결과를 JSON 파일로 저장합니다."""
+    # 전체 점수 계산 (가장 많이 나온 등급을 전체 점수로 사용)
+    if results:
+        grades = [res['grade'] for res in results]
+        grade_counts = GradeCounter(grades)
+        most_common_grade = grade_counts.most_common(1)[0][0]
+    else:
+        most_common_grade = "F"
+    
+    # 부위별 점수 계산 (모든 반복의 평균)
+    grader = ComprehensiveLungeGrader()
+    all_body_part_scores = []
+    
+    for res in results:
+        body_part_scores = grader.get_body_part_scores(res['errors'])
+        all_body_part_scores.extend(body_part_scores)
+    
+    # 부위별 평균 점수 계산
+    body_part_grade_counts = {}
+    for score in all_body_part_scores:
+        body_part = score['body_part']
+        detail_score = score['detail_score']
+        if body_part not in body_part_grade_counts:
+            body_part_grade_counts[body_part] = []
+        body_part_grade_counts[body_part].append(detail_score)
+    
+    final_body_part_scores = []
+    for body_part, scores in body_part_grade_counts.items():
+        # 점수를 숫자로 변환하여 평균 계산
+        score_values = {'A': 5, 'B': 4, 'C': 3, 'D': 2, 'F': 1}
+        numeric_scores = [score_values.get(score, 1) for score in scores]
+        avg_score = sum(numeric_scores) / len(numeric_scores)
+        
+        # 평균을 다시 등급으로 변환
+        if avg_score >= 4.5:
+            final_grade = "A"
+        elif avg_score >= 3.5:
+            final_grade = "B"
+        elif avg_score >= 2.5:
+            final_grade = "C"
+        elif avg_score >= 1.5:
+            final_grade = "D"
+        else:
+            final_grade = "F"
+        
+        final_body_part_scores.append({
+            "body_part": body_part,
+            "detail_score": final_grade
+        })
+
+    required_body_parts = ["무릎", "상체", "골반", "발목"]
+    reordered_scores = []
+    existing = {score["body_part"]: score for score in final_body_part_scores}
+    for part in required_body_parts:
+        reordered_scores.append(existing.get(part, {"body_part": part, "detail_score": "F"}))
+    final_body_part_scores = reordered_scores
+    
+    # 리포트 텍스트 생성 - 리포트 파일의 전체 내용을 읽어서 포함
+    analysis_text = ""
+    try:
+        # 리포트 파일 경로 생성 (json_path와 같은 디렉토리의 .txt 파일)
+        report_dir = os.path.dirname(json_path)
+        # JSON 파일명에서 analysis를 report로 변경하고 확장자를 txt로 변경
+        report_filename = os.path.basename(json_path).replace('analysis', 'report').replace('.json', '.txt')
+        report_path = os.path.join(report_dir, report_filename)
+        
+        print(f"[DEBUG] 리포트 파일 경로: {report_path}")
+        print(f"[DEBUG] 리포트 파일 존재 여부: {os.path.exists(report_path)}")
+        
+        # 리포트 파일이 존재하면 전체 내용을 읽어옴
+        if os.path.exists(report_path):
+            with open(report_path, 'r', encoding='utf-8') as f:
+                analysis_text = f.read()
+            print(f"[DEBUG] 리포트 파일 내용 길이: {len(analysis_text)} 문자")
+            print(f"[DEBUG] 리포트 파일 내용 미리보기: {analysis_text[:200]}...")
+            print(f"리포트 파일 내용을 analysis_text에 포함: {report_path}")
+        else:
+            print(f"리포트 파일을 찾을 수 없음: {report_path}")
+            # 리포트 파일이 없으면 기본 정보 생성
+            analysis_text = f"실시간 런지 자세 분석 리포트 (TTS 피드백 포함)\n"
+            analysis_text += f"총 런지 횟수: {total_reps}회\n\n"
+            
+            if results:
+                analysis_text += "반복별 상세 결과:\n"
+                for res in results:
+                    analysis_text += f"\n--- {res['rep']}회차: 등급 {res['grade']} ---\n"
+                    if res['errors']:
+                        analysis_text += "  [수행하지 못한 기준]\n"
+                        for error_key in sorted(res['errors']):
+                            error_description = ERROR_CRITERIA_MAP.get(error_key, "알 수 없는 오류")
+                            analysis_text += f"  - {error_description}\n"
+                    else:
+                        analysis_text += "  - 모든 기준을 만족했습니다.\n"
+    except Exception as e:
+        print(f"리포트 파일 읽기 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        # 오류 발생 시 기본 정보 생성
+        analysis_text = f"실시간 런지 자세 분석 리포트 (TTS 피드백 포함)\n"
+        analysis_text += f"총 런지 횟수: {total_reps}회\n\n"
+        analysis_text += f"리포트 파일 읽기 오류: {str(e)}"
+    
+    # JSON 데이터 구성
+    json_data = {
+        "pose_type": "LUNGE",
+        "duration": total_duration,
+        "reps": total_reps,
+        "total_score": most_common_grade,
+        "video_path": None,  # 영상 경로는 null로 설정
+        "analysis_text": analysis_text,
+        "score_details": final_body_part_scores
+    }
+    
+    # JSON 파일 저장
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(json_data, f, ensure_ascii=False, indent=2)
+    
+    print(f"JSON 리포트가 '{json_path}'에 저장되었습니다.")
+    return json_data
+
 # def run_lunge_analysis(duration_seconds=120, stop_callback=None):
-def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=None, is_gui_mode=False):
+def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=None, is_gui_mode=False, api_client=None):
     """실시간 카메라를 통한 런지 분석 함수 (TTS 피드백 포함)
     
     Args:
@@ -567,6 +792,7 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         stop_callback (callable): 분석 중지 여부를 확인하는 콜백 함수
         frame_callback (callable): 프레임 처리 콜백 함수
         is_gui_mode (bool): GUI 모드 여부 (PySide6 환경에서는 True)
+        api_client: API 클라이언트 (선택사항)
     """
     
     # 중지 플래그 초기화
@@ -596,23 +822,21 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         return None, None
     
     # 카메라 설정 (젯슨 딜레이 최소화)
+    target_fps = 15.0
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # 원래 해상도 유지
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # 원래 해상도 유지
-    cap.set(cv2.CAP_PROP_FPS, 15)            # 15 FPS로 설정
+    cap.set(cv2.CAP_PROP_FPS, target_fps)    # FPS 맞추기
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)      # 버퍼 크기 최소화
     
     # 영상 저장을 위한 설정
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = 30.0
+    fps = target_fps
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     
-    # output 디렉토리 생성 및 확인 (현재 스크립트 위치 기준)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_dir = os.path.join(script_dir, "output")
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"output 디렉토리를 생성했습니다: {output_dir}")
+    # output 디렉토리 가져오기 (사용자 쓰기 가능한 위치)
+    output_dir = get_output_dir()
+    print(f"output 디렉토리: {output_dir}")
     
     # 타임스탬프를 포함한 파일명 생성 (output 디렉토리 내)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -899,18 +1123,28 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
 
     # 결과 저장
     save_report(output_report_path, counter, all_rep_results)
+    
+    # JSON 리포트 저장
+    output_json_path = os.path.join(output_dir, f"lunge_realtime_tts_analysis_{timestamp}.json")
+    json_data = save_json_report(output_json_path, counter, all_rep_results, duration_seconds)
+    
+    # API로 데이터 전송 (API 클라이언트가 제공된 경우)
+    api_result = send_record_and_upload(api_client, json_data, output_video_path, "lunge")
+    
     print(f"분석 영상이 '{output_video_path}'에 저장되었습니다.")
     print(f"분석 리포트가 '{output_report_path}'에 저장되었습니다.")
+    print(f"JSON 리포트가 '{output_json_path}'에 저장되었습니다.")
     print(f"총 {counter}회의 런지를 분석했습니다.")
     print("TTS 피드백이 실시간으로 제공되었습니다.")
     
-    # 결과 파일 경로 반환
-    return output_video_path, output_report_path
+    # 결과 파일 경로 반환 (JSON 데이터와 API 결과 포함)
+    return output_video_path, output_report_path, output_json_path, json_data, api_result
 
 def main():
     """기존 main 함수 (호환성 유지)"""
-    video_path, report_path = run_lunge_analysis(120)  # 기본 2분
-    if video_path and report_path:
+    result = run_lunge_analysis(120)  # 기본 2분
+    if result and len(result) >= 2:
+        video_path, report_path = result[0], result[1]
         print(f"분석 완료: {video_path}, {report_path}")
     else:
         print("분석 실패")
