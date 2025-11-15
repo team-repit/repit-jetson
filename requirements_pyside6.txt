@@ -18,6 +18,10 @@ pillow>=8.0.0
 gtts>=2.4.0
 pydub>=0.25.0
 
+# PyInstaller - Python 실행 파일 생성 도구
+pyinstaller>=5.13.0
+
+
 # 젯슨 설치 가이드:
 # 1. 가상환경 생성: python3 -m venv app-env-pyside6
 # 2. 활성화: source app-env-pyside6/bin/activate  
