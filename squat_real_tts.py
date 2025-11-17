@@ -587,9 +587,13 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             "허리 말림",  # 🚨 안전성 최우선
             "무릎 모임",  # 🚨 안전성 최우선
             "굿모닝 스쿼트",  # 🚨 안전성 최우선
+            "측면 불안정성",  # 🚨 안전성 최우선
+            "무릎 과신전",  # 🚨 안전성 최우선
             "상체 숙임",  # ⚠️ 효과성
+            "과도한 상체 숙임",  # ⚠️ 효과성
             "뒤꿈치 들림",  # ⚠️ 효과성
             "골반 치우침",  # ⚠️ 효과성
+            "발 간격 부족",  # ⚠️ 효과성
             "깊이 부족",  # 💡 최적화
             "발목 가동성 부족"  # 💡 최적화
         ]
@@ -759,9 +763,12 @@ class ComprehensiveSquatGrader:
 
         # 레벨 2: 효과성 (Effectiveness) - 주요 교정 대상 (적당히 완화된 기준)
         if phase in ["DESCEND", "BOTTOM"]:
-            # 2-1. 과도한 상체 숙임 (Chest Drop) - 기준 적당히 완화
-            if 'torso' in angles and angles['torso'] < 40 and "허리 말림" not in errors:  # 35 -> 40으로 조정
-                errors.append("상체 숙임")
+            # 2-1. 상체 숙임 (Chest Drop) - 더 심각한 경우만 구분
+            if 'torso' in angles and "허리 말림" not in errors:
+                if angles['torso'] < 35:  # 매우 심각한 경우
+                    errors.append("과도한 상체 숙임")
+                elif angles['torso'] < 40:  # 일반적인 경우
+                    errors.append("상체 숙임")
 
             # 2-2. 뒤꿈치 들림 (Heel Lift) - 기준 적당히 완화
             left_heel_vis = landmarks.get('left_heel_visibility', 1.0)
@@ -775,6 +782,34 @@ class ComprehensiveSquatGrader:
             shoulder_width = abs(landmarks['left_shoulder'][0] - landmarks['right_shoulder'][0])
             if shoulder_width > 0 and abs(hip_center_x - ankle_center_x) > shoulder_width * 0.2:  # 0.25 -> 0.2로 조정
                 errors.append("골반 치우침")
+            
+            # 2-4. 측면 불안정성 (Lateral Instability)
+            shoulder_angle_with_horizontal = calculate_angle(
+                landmarks['right_shoulder'], 
+                landmarks['left_shoulder'], 
+                [landmarks['left_shoulder'][0] + 100, landmarks['left_shoulder'][1]]
+            )
+            hip_angle_with_horizontal = calculate_angle(
+                landmarks['right_hip'], 
+                landmarks['left_hip'], 
+                [landmarks['left_hip'][0] + 100, landmarks['left_hip'][1]]
+            )
+            if not (160 <= shoulder_angle_with_horizontal <= 200) or not (160 <= hip_angle_with_horizontal <= 200):
+                errors.append("측면 불안정성")
+            
+            # 2-5. 발 간격 부족 (Insufficient Foot Width)
+            ankle_dist = abs(landmarks['left_ankle'][0] - landmarks['right_ankle'][0])
+            shoulder_dist = abs(landmarks['left_shoulder'][0] - landmarks['right_shoulder'][0])
+            if shoulder_dist > 0 and ankle_dist < shoulder_dist * 0.5:  # 어깨너비의 50% 미만
+                errors.append("발 간격 부족")
+            
+            # 2-6. 무릎 과신전 (Knee Hyperextension)
+            lk_pos, rk_pos = landmarks.get('left_knee'), landmarks.get('right_knee')
+            la_pos, ra_pos = landmarks.get('left_ankle'), landmarks.get('right_ankle')
+            if all([lk_pos, rk_pos, la_pos, ra_pos]):
+                # 왼쪽 또는 오른쪽 무릎이 발목보다 앞에 있는지 확인
+                if (lk_pos[0] > la_pos[0] + 20) or (rk_pos[0] < ra_pos[0] - 20):  # 20px 이상 앞에 있으면
+                    errors.append("무릎 과신전")
 
         # 레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)
         if phase == "BOTTOM":
@@ -807,10 +842,10 @@ class ComprehensiveSquatGrader:
         
         # 스쿼트 관련 부위별 오류 매핑
         body_part_error_mapping = {
-            "허리": ["허리 말림", "굿모닝 스쿼트", "상체 숙임"],
-            "무릎": ["무릎 모임", "깊이 부족"],
-            "골반": ["골반 치우침"],
-            "발목": ["뒤꿈치 들림", "발목 가동성 부족"]
+            "허리": ["허리 말림", "굿모닝 스쿼트", "상체 숙임", "과도한 상체 숙임"],
+            "무릎": ["무릎 모임", "깊이 부족", "무릎 과신전"],
+            "골반": ["골반 치우침", "측면 불안정성"],
+            "발목": ["뒤꿈치 들림", "발목 가동성 부족", "발 간격 부족"]
         }
         
         # 각 부위별로 점수 계산
@@ -840,7 +875,7 @@ class ComprehensiveSquatGrader:
 
     def get_error_priority(self, error: str) -> str:
         """오류의 우선순위를 반환합니다."""
-        safety_errors = ["허리 말림", "무릎 모임", "굿모닝 스쿼트"]
+        safety_errors = ["허리 말림", "무릎 모임", "굿모닝 스쿼트", "측면 불안정성", "무릎 과신전"]
         if error in safety_errors:
             return "urgent"
         return "normal"

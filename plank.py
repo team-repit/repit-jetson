@@ -131,8 +131,7 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             "허리 처짐": "허리를 펴고 코어에 힘을 주세요. 일직선을 유지하세요.",
             "어깨 긴장": "어깨에 힘을 빼고 자연스럽게 유지하세요.",
             "발목 각도": "발목을 자연스럽게 펴고 긴장을 유지하세요.",
-            "팔 위치": "팔을 어깨 너비만큼 벌리고 안정적으로 지탱하세요.",
-            "호흡": "자연스럽게 호흡하면서 자세를 유지하세요."
+            "팔 위치": "팔을 어깨 너비만큼 벌리고 안정적으로 지탱하세요."
         }
     
     def _detect_platform(self):
@@ -365,10 +364,14 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
         """오류를 우선순위 순서로 정렬 (안전성 > 효과성 > 최적화)"""
         priority_order = [
             "엉덩이 처짐",        # 🚨 안전성 최우선
-            "엉덩이 솟음",        # 🚨 안전성 최우선  
+            "엉덩이 솟음",        # 🚨 안전성 최우선
+            "허리 처짐",          # 🚨 안전성 최우선
             "고개 정렬 불량",     # ⚠️ 효과성
             "팔꿈치 정렬 불량",   # ⚠️ 효과성
-            "무릎 굽힘"          # 💡 최적화
+            "어깨 긴장",         # ⚠️ 효과성
+            "무릎 굽힘",          # 💡 최적화
+            "발목 각도",         # 💡 최적화
+            "팔 위치"            # 💡 최적화
         ]
         
         # 우선순위 순서로 정렬
@@ -491,8 +494,12 @@ class ComprehensivePlankGrader:
         errors = []
         
         # 레벨 1: 안전성 (Safety) - 즉시 교정 대상
-        if 'body' in angles and angles['body'] > 200: # 190 -> 200
-            errors.append("엉덩이 처짐")
+        # 엉덩이/허리 처짐 - 더 심각한 경우만 구분
+        if 'body' in angles:
+            if angles['body'] > 210:  # 매우 심각한 경우
+                errors.append("허리 처짐")
+            elif angles['body'] > 200:  # 일반적인 경우
+                errors.append("엉덩이 처짐")
 
         # 레벨 2: 효과성 (Effectiveness) - 주요 교정 대상
         if 'body' in angles and angles['body'] < 150: # 165 -> 150
@@ -513,6 +520,29 @@ class ComprehensivePlankGrader:
             
         if 'leg' in angles and angles['leg'] < 150: # 165 -> 150
             errors.append("무릎 굽힘")
+        
+        # 어깨 긴장 (어깨가 너무 올라가 있는지 확인)
+        left_shoulder_y = landmarks['left_shoulder'][1]
+        right_shoulder_y = landmarks['right_shoulder'][1]
+        left_ear_y = landmarks['left_ear'][1]
+        right_ear_y = landmarks['right_ear'][1]
+        # 어깨가 귀보다 너무 높이 올라가 있으면 (어깨가 들려있음)
+        if (left_shoulder_y < left_ear_y - 30) or (right_shoulder_y < right_ear_y - 30):
+            errors.append("어깨 긴장")
+        
+        # 발목 각도 (발목이 너무 굽혀져 있는지 확인)
+        if 'leg' in angles:
+            # 다리 각도가 너무 작으면 발목이 과도하게 굽혀진 것
+            if angles['leg'] < 140:
+                errors.append("발목 각도")
+        
+        # 팔 위치 (팔 사이 간격이 너무 좁거나 넓은지 확인)
+        wrist_dist = abs(landmarks['left_wrist'][0] - landmarks['right_wrist'][0])
+        shoulder_dist = abs(landmarks['left_shoulder'][0] - landmarks['right_shoulder'][0])
+        if shoulder_dist > 0:
+            # 팔 사이 간격이 어깨너비의 80% 미만이거나 150% 초과
+            if wrist_dist < shoulder_dist * 0.8 or wrist_dist > shoulder_dist * 1.5:
+                errors.append("팔 위치")
 
         return errors
 
@@ -531,10 +561,10 @@ class ComprehensivePlankGrader:
         
         # 플랭크 관련 부위별 오류 매핑
         body_part_error_mapping = {
-            "골반": ["엉덩이 처짐", "엉덩이 솟음"],
+            "골반": ["엉덩이 처짐", "엉덩이 솟음", "허리 처짐"],
             "목": ["고개 정렬 불량"],
-            "팔": ["팔꿈치 정렬 불량"],
-            "다리": ["무릎 굽힘"]
+            "팔": ["팔꿈치 정렬 불량", "어깨 긴장", "팔 위치"],
+            "다리": ["무릎 굽힘", "발목 각도"]
         }
         
         # 각 부위별로 점수 계산
@@ -564,7 +594,7 @@ class ComprehensivePlankGrader:
 
     def get_error_priority(self, error: str) -> str:
         """오류의 우선순위를 반환합니다."""
-        safety_errors = ["엉덩이 처짐", "엉덩이 솟음"]
+        safety_errors = ["엉덩이 처짐", "엉덩이 솟음", "허리 처짐"]
         if error in safety_errors:
             return "urgent"
         return "normal"

@@ -530,9 +530,7 @@ class ComprehensiveLungeGrader:
             errors.append("상체 숙여짐")
 
         # 2-2. 부족한 깊이 (기존 115도 -> 120도로 완화)
-        if 'front_knee' in angles and angles['front_knee'] > 120:
-            errors.append("부족한 깊이")
-        if 'back_knee' in angles and angles['back_knee'] > 120:
+        if ('front_knee' in angles and angles['front_knee'] > 120) or ('back_knee' in angles and angles['back_knee'] > 120):
             errors.append("부족한 깊이")
 
         # 2-3. 좁은 스탠스 (기존 15% -> 20%로 완화)
