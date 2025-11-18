@@ -126,7 +126,6 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
         
         # Qt 환경에서는 피드백 워커를 별도 스레드에서 시작 (시그널 사용 안 함)
         if QT_AVAILABLE:
-            import threading
             self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
             self.feedback_thread.start()
         else:
