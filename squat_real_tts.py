@@ -78,12 +78,10 @@ except ImportError:
 # 주요 변경사항:
 # 1. 점수 기준: 0개=A, 1-2개=B, 3-4개=C, 5-6개=D, 7개+=F
 # 2. 허리 말림: 65도 -> 55도로 적당히 완화
-# 3. 무릎 모임: 85% -> 75%로 적당히 완화  
-# 4. 상체 숙임: 45도 -> 40도로 적당히 완화
-# 5. 뒤꿈치 들림: 70% -> 60%로 적당히 완화
-# 6. 골반 치우침: 15% -> 20%로 적당히 완화
-# 7. 깊이 부족: 120도 -> 130도로 적당히 완화
-# 8. 발목 가동성: 80도 -> 85도로 적당히 완화
+# 3. 상체 숙임: 45도 -> 40도로 적당히 완화
+# 4. 뒤꿈치 들림: 70% -> 60%로 적당히 완화
+# 5. 깊이 부족: 120도 -> 130도로 적당히 완화
+# 6. 발목 가동성: 80도 -> 85도로 적당히 완화
 
 # MediaPipe Pose 모델 초기화 (PyInstaller 환경 대응)
 try:
@@ -125,29 +123,22 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
             self._check_jetson_tts_tools()
 
         # Qt 환경에서는 피드백 워커를 별도 스레드에서 시작 (시그널 사용 안 함)
-        if QT_AVAILABLE:
-            import threading
-            self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
-            self.feedback_thread.start()
-        else:
-            # Qt가 없는 환경에서는 일반 스레드 사용
-            self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
-            self.feedback_thread.start()
+        # threading은 파일 상단에서 이미 import됨 (7번째 줄)
+        self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
+        self.feedback_thread.start()
 
         # 피드백 메시지 매핑 (친근하고 구체적인 안내)
         self.feedback_messages = {
             "허리 말림": "등을 펴고 코어에 힘을 주세요.",
-            "무릎 모임": "무릎이 발끝 방향을 향하도록 하세요.",
             "굿모닝 스쿼트": "상체와 엉덩이가 함께 올라오도록 하세요.",
             "상체 숙임": "가슴을 펴고 상체를 세우세요.",
             "뒤꿈치 들림": "뒤꿈치를 바닥에 붙이세요.",
-            "골반 치우침": "골반의 균형을 유지하세요.",
             "깊이 부족": "더 깊게 앉으세요.",
-            "발목 가동성 부족": "발목을 더 굽혀보세요.",
             "측면 불안정성": "몸의 중심을 잡고 일자로 서세요.",
             "과도한 상체 숙임": "상체가 너무 앞으로 숙여져 있어요. 가슴을 펴세요.",
             "무릎 과신전": "무릎이 너무 앞으로 나갔어요. 무게중심을 뒤로 두세요.",
-            "발 간격 부족": "발 사이 간격을 어깨너비만큼 벌려주세요."
+            "발 간격 부족": "발 사이 간격을 어깨너비만큼 벌려주세요.",
+            "무릎 방향 불일치": "무릎 방향이 발끝 방향과 일치하도록 해주세요."
         }
 
     def _detect_platform(self):
@@ -528,14 +519,14 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
         """지능적 피드백 추가 (잔소리꾼 방지)"""
         current_time = time.time()
 
-        # 같은 오류에 대한 쿨다운 체크
+        # 같은 오류에 대한 쿨다운 체크 (3초)
         if error_type in self.last_feedback_time:
             if current_time - self.last_feedback_time[error_type] < self.feedback_cooldown:
-                return False
+                return False  # 3초 이내에 같은 피드백이 이미 나왔으면 무시
 
-        # 최소 피드백 간격 체크
-        if current_time - self.last_general_feedback < self.min_feedback_interval:
-            return False
+        # 모든 피드백에 대한 최소 간격 체크 (3초로 통일)
+        if current_time - self.last_general_feedback < self.feedback_cooldown:
+            return False  # 3초 이내에 어떤 피드백이든 이미 나왔으면 무시
 
         # 오류가 2개 이상일 때는 우선순위 1위만 피드백 (잔소리꾼 방지)
         if hasattr(self, 'current_rep_errors') and len(self.current_rep_errors) >= 2:
@@ -584,17 +575,15 @@ class UniversalTTS(QObject if QT_AVAILABLE else object):
         """오류를 우선순위 순서로 정렬 (안전성 > 효과성 > 최적화)"""
         priority_order = [
             "허리 말림",  # 🚨 안전성 최우선
-            "무릎 모임",  # 🚨 안전성 최우선
             "굿모닝 스쿼트",  # 🚨 안전성 최우선
             "측면 불안정성",  # 🚨 안전성 최우선
             "무릎 과신전",  # 🚨 안전성 최우선
             "상체 숙임",  # ⚠️ 효과성
             "과도한 상체 숙임",  # ⚠️ 효과성
             "뒤꿈치 들림",  # ⚠️ 효과성
-            "골반 치우침",  # ⚠️ 효과성
             "발 간격 부족",  # ⚠️ 효과성
-            "깊이 부족",  # 💡 최적화
-            "발목 가동성 부족"  # 💡 최적화
+            "무릎 방향 불일치",  # ⚠️ 효과성
+            "깊이 부족"  # 💡 최적화
         ]
 
         # 우선순위 순서로 정렬
@@ -729,7 +718,7 @@ class ComprehensiveSquatGrader:
     계층적 피드백 구조(안전성 > 효과성 > 최적화)를 따릅니다.
     """
     def __init__(self):
-        pass
+        self.initial_knee_distance = None  # 서있을 때 무릎 간 거리 기준값
 
     def evaluate_errors(self, landmarks: dict, angles: dict, phase: str, rep_start_hip_y: float) -> List[str]:
         """
@@ -743,16 +732,7 @@ class ComprehensiveSquatGrader:
             if 'hip' in angles and angles['hip'] < 55:  # 45 -> 55로 조정 (너무 관대하지 않게)
                 errors.append("허리 말림")
 
-            # 1-2. 무릎 모임 (Knee Valgus) - 기준 적당히 완화
-            lk_pos, rk_pos = landmarks.get('left_knee'), landmarks.get('right_knee')
-            la_pos, ra_pos = landmarks.get('left_ankle'), landmarks.get('right_ankle')
-            if all([lk_pos, rk_pos, la_pos, ra_pos]):
-                knee_dist = abs(lk_pos[0] - rk_pos[0])
-                ankle_dist = abs(la_pos[0] - ra_pos[0])
-                if ankle_dist > 0 and knee_dist < ankle_dist * 0.75:  # 0.7 -> 0.75로 조정
-                    errors.append("무릎 모임")
-
-            # 1-3. "굿모닝" 스쿼트 - 기준 완화
+            # 1-2. "굿모닝" 스쿼트 - 기준 완화
             if phase == "ASCEND":
                 hip_y = (landmarks['left_hip'][1] + landmarks['right_hip'][1]) / 2
                 shoulder_y = (landmarks['left_shoulder'][1] + landmarks['right_shoulder'][1]) / 2
@@ -774,15 +754,8 @@ class ComprehensiveSquatGrader:
             right_heel_vis = landmarks.get('right_heel_visibility', 1.0)
             if left_heel_vis < 0.6 or right_heel_vis < 0.6:  # 0.5 -> 0.6으로 조정
                 errors.append("뒤꿈치 들림")
-
-            # 2-3. 골반 치우침 (Pelvic Shift) - 기준 적당히 완화
-            hip_center_x = (landmarks['left_hip'][0] + landmarks['right_hip'][0]) / 2
-            ankle_center_x = (landmarks['left_ankle'][0] + landmarks['right_ankle'][0]) / 2
-            shoulder_width = abs(landmarks['left_shoulder'][0] - landmarks['right_shoulder'][0])
-            if shoulder_width > 0 and abs(hip_center_x - ankle_center_x) > shoulder_width * 0.2:  # 0.25 -> 0.2로 조정
-                errors.append("골반 치우침")
             
-            # 2-4. 측면 불안정성 (Lateral Instability)
+            # 2-3. 측면 불안정성 (Lateral Instability) - 기준 대폭 완화
             shoulder_angle_with_horizontal = calculate_angle(
                 landmarks['right_shoulder'], 
                 landmarks['left_shoulder'], 
@@ -793,8 +766,17 @@ class ComprehensiveSquatGrader:
                 landmarks['left_hip'], 
                 [landmarks['left_hip'][0] + 100, landmarks['left_hip'][1]]
             )
-            if not (160 <= shoulder_angle_with_horizontal <= 200) or not (160 <= hip_angle_with_horizontal <= 200):
+            # 160-200도 -> 150-210도로 대폭 완화
+            if not (150 <= shoulder_angle_with_horizontal <= 210) or not (150 <= hip_angle_with_horizontal <= 210):
                 errors.append("측면 불안정성")
+            
+            # 2-4. 무릎 간 거리 변화 체크 (무릎 방향이 발끝 방향과 일치하도록)
+            if self.initial_knee_distance is not None:
+                current_knee_distance = abs(landmarks['left_knee'][0] - landmarks['right_knee'][0])
+                # 무릎 간 거리가 ±50% 이상 변화하면 피드백 (0.5배 이하 또는 1.5배 이상)
+                # 더 완화된 기준: 0.5배 이하 또는 1.5배 이상일 때만 피드백
+                if current_knee_distance < self.initial_knee_distance * 0.5 or current_knee_distance > self.initial_knee_distance * 1.5:
+                    errors.append("무릎 방향 불일치")
             
             # 2-5. 발 간격 부족 (Insufficient Foot Width)
             ankle_dist = abs(landmarks['left_ankle'][0] - landmarks['right_ankle'][0])
@@ -802,23 +784,17 @@ class ComprehensiveSquatGrader:
             if shoulder_dist > 0 and ankle_dist < shoulder_dist * 0.5:  # 어깨너비의 50% 미만
                 errors.append("발 간격 부족")
             
-            # 2-6. 무릎 과신전 (Knee Hyperextension)
-            lk_pos, rk_pos = landmarks.get('left_knee'), landmarks.get('right_knee')
-            la_pos, ra_pos = landmarks.get('left_ankle'), landmarks.get('right_ankle')
-            if all([lk_pos, rk_pos, la_pos, ra_pos]):
-                # 왼쪽 또는 오른쪽 무릎이 발목보다 앞에 있는지 확인
-                if (lk_pos[0] > la_pos[0] + 20) or (rk_pos[0] < ra_pos[0] - 20):  # 20px 이상 앞에 있으면
-                    errors.append("무릎 과신전")
+            # 2-6. 무릎 과신전 (Knee Hyperextension) - 무릎 각도 기준으로 변경
+            # 무릎 각도가 80도 이하일 때 (무릎이 너무 앞으로 나간 상태)
+            if 'knee' in angles and angles['knee'] <= 80:
+                errors.append("무릎 과신전")
 
         # 레벨 3: 최적화 (Optimization) - 미세 조정 (적당히 완화된 기준)
         if phase == "BOTTOM":
-            # 3-1. 깊이 부족 (Insufficient Depth) - 기준 적당히 완화
-            if 'knee' in angles and angles['knee'] > 130:  # 135 -> 130으로 조정
+            # 3-1. 깊이 부족 (Insufficient Depth) - [요청 사항 반영] 기준 대폭 완화
+            # 150도 -> 165도로 대폭 완화
+            if 'knee' in angles and angles['knee'] > 165:  # 대폭 완화된 기준
                 errors.append("깊이 부족")
-
-            # 3-2. 발목 가동성 부족 (Ankle Mobility) - 기준 적당히 완화
-            if 'ankle' in angles and angles['ankle'] > 85:  # 90 -> 85로 조정
-                errors.append("발목 가동성 부족")
 
         return errors
 
@@ -830,9 +806,9 @@ class ComprehensiveSquatGrader:
         # 기존: 0개=A, 1개=B, 2개=C, 3개=D, 4개+=F
         # 조정: 0개=A, 1-2개=B, 3-4개=C, 5-6개=D, 7개+=F
         if num_errors == 0: return "A"      # 완벽
-        elif num_errors <= 2: return "B"    # 1-2개 오류: B급 (기존 B, C급)
-        elif num_errors <= 4: return "C"    # 3-4개 오류: C급 (기존 D급)
-        elif num_errors <= 6: return "D"    # 5-6개 오류: D급 (기존 F급)
+        elif num_errors <= 1: return "B"    # 1-2개 오류: B급 (기존 B, C급)
+        elif num_errors <= 2: return "C"    # 3-4개 오류: C급 (기존 D급)
+        elif num_errors <= 3: return "D"    # 5-6개 오류: D급 (기존 F급)
         else: return "F"                    # 7개 이상: F급 (심각한 경우)
 
     def get_body_part_scores(self, errors: List[str]) -> List[Dict[str, str]]:
@@ -842,9 +818,9 @@ class ComprehensiveSquatGrader:
         # 스쿼트 관련 부위별 오류 매핑
         body_part_error_mapping = {
             "허리": ["허리 말림", "굿모닝 스쿼트", "상체 숙임", "과도한 상체 숙임"],
-            "무릎": ["무릎 모임", "깊이 부족", "무릎 과신전"],
-            "골반": ["골반 치우침", "측면 불안정성"],
-            "발목": ["뒤꿈치 들림", "발목 가동성 부족", "발 간격 부족"]
+            "무릎": ["깊이 부족", "무릎 과신전", "무릎 방향 불일치"],
+            "골반": ["측면 불안정성"],
+            "발목": ["뒤꿈치 들림", "발 간격 부족"]
         }
         
         # 각 부위별로 점수 계산
@@ -856,11 +832,11 @@ class ComprehensiveSquatGrader:
             # 부위별 점수 계산 (전체 점수와 동일한 기준 적용)
             if num_part_errors == 0:
                 detail_score = "A"
-            elif num_part_errors == 1:
-                detail_score = "B"
             elif num_part_errors == 2:
+                detail_score = "B"
+            elif num_part_errors == 4:
                 detail_score = "C"
-            elif num_part_errors == 3:
+            elif num_part_errors == 6:
                 detail_score = "D"
             else:
                 detail_score = "F"
@@ -874,7 +850,7 @@ class ComprehensiveSquatGrader:
 
     def get_error_priority(self, error: str) -> str:
         """오류의 우선순위를 반환합니다."""
-        safety_errors = ["허리 말림", "무릎 모임", "굿모닝 스쿼트", "측면 불안정성", "무릎 과신전"]
+        safety_errors = ["허리 말림", "굿모닝 스쿼트", "측면 불안정성", "무릎 과신전"]
         if error in safety_errors:
             return "urgent"
         return "normal"
@@ -882,13 +858,11 @@ class ComprehensiveSquatGrader:
 # 오류 키와 상세 설명을 매핑하는 딕셔너리
 ERROR_CRITERIA_MAP = {
     "허리 말림": "허리 말림 (Butt Wink): 하강 최저점에서 엉덩이가 안으로 말리며 허리의 중립이 무너지는 현상.",
-    "무릎 모임": "무릎 모임 (Knee Valgus): 하강 또는 상승 시 무릎이 발보다 안쪽으로 무너지는 현상.",
     "굿모닝 스쿼트": '"굿모닝" 스쿼트: 상승 시 엉덩이가 상체보다 현저히 빠르게 올라와 허리에 과부하가 걸리는 현상.',
     "상체 숙임": "과도한 상체 숙임 (Chest Drop): 힙 힌지 범위를 넘어 상체가 과도하게 앞으로 쏠리는 자세.",
     "뒤꿈치 들림": "뒤꿈치 들림 (Heel Lift): 무게 중심이 앞으로 쏠려 뒤꿈치가 바닥에서 뜨는 현상.",
-    "골반 치우침": "골반 치우침 (Pelvic Shift): 하강 또는 상승 시 골반이 좌우 한쪽으로 쏠리는 현상.",
     "깊이 부족": "깊이 부족 (Insufficient Depth): 허벅지가 지면과 평행이 되는 지점까지 충분히 하강하지 못하는 경우.",
-    "발목 가동성 부족": "발목 가동성 부족 (Ankle Mobility): 스쿼트 최저점에서 발목 각도(배굴곡)가 충분하지 않은 경우."
+    "무릎 방향 불일치": "무릎 방향 불일치 (Knee Alignment): 서있을 때의 무릎 간 거리 대비 ±40% 이상 변화하여 무릎 방향이 발끝 방향과 일치하지 않는 현상."
 }
 
 def save_report(report_path: str, total_reps: int, results: List[Dict]):
@@ -936,15 +910,12 @@ def save_report(report_path: str, total_reps: int, results: List[Dict]):
         f.write("\n[자세 평가 기준 요약]\n")
         f.write("레벨 1 - 안전성\n")
         f.write("  · 허리 말림: 하강 최저점에서 허리가 무너짐 (각도 < 55도)\n")
-        f.write("  · 무릎 모임: 무릎 간격이 발목 간격의 75% 미만\n")
         f.write("  · 굿모닝 스쿼트: 엉덩이가 상체보다 먼저 올라감\n")
         f.write("레벨 2 - 효과성\n")
         f.write("  · 상체 숙임: 상체 각도 40도 미만\n")
         f.write("  · 뒤꿈치 들림: 뒤꿈치 가시성 60% 미만\n")
-        f.write("  · 골반 치우침: 골반 중심이 어깨 폭의 20% 이상 벗어남\n")
         f.write("레벨 3 - 최적화\n")
-        f.write("  · 깊이 부족: 무릎 각도 130도 초과\n")
-        f.write("  · 발목 가동성 부족: 발목 각도 85도 초과\n")
+        f.write("  · 깊이 부족: 무릎 각도 165도 초과\n")
 
     print(f"리포트가 '{report_path}'에 저장되었습니다.")
 
@@ -1159,8 +1130,9 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     print("운동 자세를 잡아주세요!")
     print("종료하려면 'q'를 누르세요.")
     
-    # 시작 안내 메시지
-    tts_manager.add_feedback("운동 자세를 잡아주세요!", "encouragement")
+    # 시작 안내 메시지 (한 번만 실행, 쿨다운 무시)
+    tts_manager._speak_feedback("운동 자세를 잡아주세요!", "encouragement")
+    tts_manager.last_general_feedback = time.time()  # 쿨다운 시작
     
     while cap.isOpened():
         try:
@@ -1242,53 +1214,97 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
                 'right_heel_visibility': landmarks[mp_pose.PoseLandmark.RIGHT_HEEL.value].visibility,
             }
 
+            # 발끝과 머리 visibility 체크
+            left_foot_visibility = landmarks[mp_pose.PoseLandmark.LEFT_FOOT_INDEX.value].visibility
+            right_foot_visibility = landmarks[mp_pose.PoseLandmark.RIGHT_FOOT_INDEX.value].visibility
+            nose_visibility = landmarks[mp_pose.PoseLandmark.NOSE.value].visibility
+            
+            # 발끝이나 머리가 잘 안보이면 피드백 제공 및 스쿼트 카운팅 비활성화
+            visibility_threshold = 0.5  # visibility가 0.5 미만이면 안보이는 것으로 판단
+            is_full_body_visible = (left_foot_visibility >= visibility_threshold and 
+                                    right_foot_visibility >= visibility_threshold and 
+                                    nose_visibility >= visibility_threshold)
+            
+            if not is_full_body_visible:
+                tts_manager.add_feedback("전신 미표시", "normal")
+
             angles = {}
+            # 왼쪽과 오른쪽 무릎 각도를 모두 계산
+            angles['left_knee'] = calculate_angle(lm_data['left_hip'], lm_data['left_knee'], lm_data['left_ankle'])
+            angles['right_knee'] = calculate_angle(lm_data['right_hip'], lm_data['right_knee'], lm_data['right_ankle'])
+            
+            # 평가용 각도는 더 잘 보이는 쪽 사용 (기존 로직 유지)
             use_left_side = landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].visibility > landmarks[
                 mp_pose.PoseLandmark.RIGHT_HIP.value].visibility
             if use_left_side:
                 angles['hip'] = calculate_angle(lm_data['left_shoulder'], lm_data['left_hip'], lm_data['left_knee'])
-                angles['knee'] = calculate_angle(lm_data['left_hip'], lm_data['left_knee'], lm_data['left_ankle'])
+                angles['knee'] = angles['left_knee']  # 평가용으로는 왼쪽 무릎 각도 사용
                 angles['ankle'] = calculate_angle(lm_data['left_knee'], lm_data['left_ankle'],
                                                   lm_data['left_foot_index'])
                 angles['torso'] = calculate_angle(lm_data['left_hip'], lm_data['left_shoulder'],
                                                   [lm_data['left_shoulder'][0], lm_data['left_shoulder'][1] - 1])
             else:
                 angles['hip'] = calculate_angle(lm_data['right_shoulder'], lm_data['right_hip'], lm_data['right_knee'])
-                angles['knee'] = calculate_angle(lm_data['right_hip'], lm_data['right_knee'], lm_data['right_ankle'])
+                angles['knee'] = angles['right_knee']  # 평가용으로는 오른쪽 무릎 각도 사용
                 angles['ankle'] = calculate_angle(lm_data['right_knee'], lm_data['right_ankle'],
                                                    lm_data['right_foot_index'])
                 angles['torso'] = calculate_angle(lm_data['right_hip'], lm_data['right_shoulder'],
                                                    [lm_data['right_shoulder'][0], lm_data['right_shoulder'][1] - 1])
 
-            if 'knee' in angles:
-                knee_angle = angles['knee']
+            # 두 무릎 각도 모두 계산되었는지 확인
+            if 'left_knee' in angles and 'right_knee' in angles:
+                left_knee_angle = angles['left_knee']
+                right_knee_angle = angles['right_knee']
+                knee_angle = angles['knee']  # 평가용 각도
 
-                if knee_angle > 160:
+                # 전신이 보일 때만 스쿼트 카운팅 수행
+                if is_full_body_visible:
+                    # 스쿼트 완료 기준: 두 무릎 각도가 모두 160도 초과 (합리적인 기준)
+                    if left_knee_angle > 160 and right_knee_angle > 160:
+                        if stage == 'down':
+                            final_grade = grader.get_grade_from_errors(list(current_rep_errors))
+                            all_rep_results.append(
+                                {'rep': counter, 'grade': final_grade, 'errors': list(current_rep_errors)})
+                            last_rep_grade = final_grade
+
+                            # 스쿼트 완료 시 격려 메시지
+                            if counter > 0:
+                                tts_manager.add_encouragement(counter)
+
+                            current_rep_errors.clear()
+                        stage = "up"
+
+                    # 내려앉는 기준: 두 무릎 각도가 모두 130도 미만 (완화된 기준)
+                    if left_knee_angle < 130 and right_knee_angle < 130 and stage == 'up':
+                        stage = "down"
+                        counter += 1
+                        rep_start_hip_y = (lm_data['left_hip'][1] + lm_data['right_hip'][1]) / 2
+                else:
+                    # 전신이 보이지 않으면 스쿼트 카운팅 중단
                     if stage == 'down':
-                        final_grade = grader.get_grade_from_errors(list(current_rep_errors))
-                        all_rep_results.append(
-                            {'rep': counter, 'grade': final_grade, 'errors': list(current_rep_errors)})
-                        last_rep_grade = final_grade
-
-                        # 스쿼트 완료 시 격려 메시지
-                        if counter > 0:
-                            tts_manager.add_encouragement(counter)
-
-                        current_rep_errors.clear()
-                    stage = "up"
-
-                if knee_angle < 100 and stage == 'up':
-                    stage = "down"
-                    counter += 1
-                    rep_start_hip_y = (lm_data['left_hip'][1] + lm_data['right_hip'][1]) / 2
+                        # 전신이 안보이는 동안에는 스쿼트를 완료하지 않음
+                        pass
 
                 current_phase = ""
-                if stage == "up":
-                    current_phase = "ASCEND" if knee_angle < 170 else "READY"
+                # 전신이 보이지 않으면 항상 READY로 설정
+                if not is_full_body_visible:
+                    current_phase = "READY"
+                elif stage == "up":
+                    # 두 무릎 각도 모두 160도 미만이면 ASCEND
+                    current_phase = "ASCEND" if (left_knee_angle < 160 and right_knee_angle < 160) else "READY"
                 elif stage == "down":
-                    current_phase = "BOTTOM" if knee_angle < 90 else "DESCEND"
+                    # 두 무릎 각도 모두 90도 미만이면 BOTTOM
+                    current_phase = "BOTTOM" if (left_knee_angle < 90 and right_knee_angle < 90) else "DESCEND"
+                else:
+                    current_phase = "READY"
 
-                if stage == "down" or stage == "up":
+                # 서있을 때 (두 무릎 각도 모두 > 160도, READY phase) 무릎 간 거리 저장
+                if is_full_body_visible and left_knee_angle > 160 and right_knee_angle > 160 and current_phase == "READY" and grader.initial_knee_distance is None:
+                    knee_distance = abs(lm_data['left_knee'][0] - lm_data['right_knee'][0])
+                    grader.initial_knee_distance = knee_distance
+
+                # 전신이 보일 때만 스쿼트 평가 수행
+                if (stage == "down" or stage == "up") and is_full_body_visible:
                     errors_in_frame = grader.evaluate_errors(lm_data, angles, current_phase, rep_start_hip_y)
 
                     # 현재 등급 계산하여 TTS 매니저에 전달
