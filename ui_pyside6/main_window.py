@@ -171,6 +171,8 @@ class ExerciseAnalyzerThread(QThread):
                         )
                         if result:
                             video_path, report_path = result[0], result[1]
+                        else:
+                            video_path, report_path = None, None
                     else:
                         self.error_occurred.emit("분석 함수(run_squat_analysis)를 찾을 수 없습니다.")
                         return
@@ -212,6 +214,8 @@ class ExerciseAnalyzerThread(QThread):
                         )
                         if result:
                             video_path, report_path = result[0], result[1]
+                        else:
+                            video_path, report_path = None, None
                     else:
                         self.error_occurred.emit("분석 함수(run_lunge_analysis)를 찾을 수 없습니다.")
                         return
@@ -254,6 +258,8 @@ class ExerciseAnalyzerThread(QThread):
                         )
                         if result:
                             video_path, report_path = result[0], result[1]
+                        else:
+                            video_path, report_path = None, None
                     else:
                         self.error_occurred.emit("분석 함수(run_plank_analysis)를 찾을 수 없습니다.")
                         return
@@ -272,13 +278,18 @@ class ExerciseAnalyzerThread(QThread):
                 print("[DEBUG] 분석이 중지되었습니다.")
                 return
 
-            if video_path and report_path and result:
-                # API 결과도 함께 전달
+            # result가 None이거나 모든 값이 None인 경우 (중지된 경우) 처리
+            if result and result[0] is not None:
+                # 정상 완료: API 결과도 함께 전달
                 json_path = result[2] if len(result) > 2 else None
                 json_data = result[3] if len(result) > 3 else None
                 api_result = result[4] if len(result) > 4 else None
                 self.analysis_finished.emit(video_path, report_path, json_path, json_data, api_result)
+            elif result and result[0] is None:
+                # 중지된 경우: on_analysis_finished에서 처리
+                self.analysis_finished.emit(None, None, None, None, None)
             else:
+                # result가 None인 경우 (초기화 오류 등)
                 self.error_occurred.emit("분석이 알 수 없는 이유로 실패했습니다.")
 
         except Exception as e:
@@ -921,6 +932,15 @@ class MainWindow(QWidget):
     def on_analysis_finished(self, video_path, report_path, json_path=None, json_data=None, api_result=None):
         """분석 완료 처리"""
         self.stop_analysis(finished_naturally=True)
+
+        # 중지된 경우 처리 (모든 값이 None)
+        if video_path is None and report_path is None:
+            QMessageBox.information(
+                self,
+                "분석 중지",
+                "운동이 중간에 중지되어 파일 저장 및 서버 전송을 건너뛰었습니다."
+            )
+            return
 
         # 결과 요약
         summary = f"""분석 완료!

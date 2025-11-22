@@ -804,6 +804,7 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     
     # 중지 플래그 초기화
     run_lunge_analysis._stop_analysis = False
+    was_stopped = False  # 중지 여부 추적
     
     try:
         # 카메라 초기화
@@ -812,7 +813,7 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         
         if not cap.isOpened():
             print("카메라를 열 수 없습니다.")
-            return None, None
+            return None, None, None, None, None
         
         # 카메라 테스트
         print("카메라 테스트 중...")
@@ -820,13 +821,13 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         if not ret:
             print("카메라에서 프레임을 읽을 수 없습니다.")
             cap.release()
-            return None, None
+            return None, None, None, None, None
         
         print(f"카메라 성공: {test_frame.shape}")
         
     except Exception as e:
         print(f"카메라 초기화 오류: {str(e)}")
-        return None, None
+        return None, None, None, None, None
     
     # 카메라 설정 (젯슨 딜레이 최소화)
     target_fps = 15.0
@@ -877,7 +878,7 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         print(f"초기화 오류: {str(e)}")
         cap.release()
         out.release()
-        return None, None
+        return None, None, None, None, None
     
     # 타이머 설정
     start_time = time.time()
@@ -1118,15 +1119,19 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
         # 분석 중지 체크 (전역 변수로 제어)
         if hasattr(run_lunge_analysis, '_stop_analysis') and run_lunge_analysis._stop_analysis:
             print("분석이 중지되었습니다.")
+            was_stopped = True
             break
 
         # 분석 중지 체크 (콜백 함수로 제어)
         if stop_callback and stop_callback():
             print("분석이 중지되었습니다.")
+            was_stopped = True
             break
 
+    # was_stopped는 이미 초기화되어 있음
+
     # 마지막 런지가 완료되지 않았다면 처리
-    if stage == 'down' and current_rep_errors:
+    if not was_stopped and stage == 'down' and current_rep_errors:
         final_grade = grader.get_grade_from_errors(list(current_rep_errors))
         all_rep_results.append({'rep': counter, 'grade': final_grade, 'errors': list(current_rep_errors)})
 
@@ -1139,6 +1144,18 @@ def run_lunge_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     cap.release()
     out.release()
     cv2.destroyAllWindows()
+
+    # 중지된 경우 파일 삭제 및 저장/전송 건너뛰기
+    if was_stopped:
+        print("운동이 중간에 중지되어 파일 저장 및 서버 전송을 건너뜁니다.")
+        # 생성된 파일 삭제
+        if os.path.exists(output_video_path):
+            try:
+                os.remove(output_video_path)
+                print(f"임시 영상 파일 삭제: {output_video_path}")
+            except Exception as e:
+                print(f"영상 파일 삭제 실패: {e}")
+        return None, None, None, None, None
 
     # 결과 저장
     save_report(output_report_path, counter, all_rep_results)
