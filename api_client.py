@@ -2,6 +2,9 @@ import requests
 import json
 from typing import Dict, Optional, Any, Tuple
 import os
+import subprocess
+import tempfile
+import shutil
 
 class RepitAPIClient:
     """Repit API 클라이언트"""
@@ -227,6 +230,74 @@ class RepitAPIClient:
             }
     
     @staticmethod
+    def apply_fast_start_to_mp4(input_path: str) -> Tuple[bool, Optional[str], str]:
+        """
+        MP4 파일에 Fast Start (MOOV atom을 파일 앞으로 이동) 적용
+        
+        Args:
+            input_path: 입력 MP4 파일 경로
+            
+        Returns:
+            (성공 여부, 처리된 파일 경로 또는 None, 메시지)
+            성공 시 처리된 파일 경로를 반환하고, 실패 시 None과 오류 메시지를 반환
+        """
+        if not os.path.exists(input_path):
+            return False, None, f"파일을 찾을 수 없습니다: {input_path}"
+        
+        # ffmpeg가 설치되어 있는지 확인
+        try:
+            subprocess.run(
+                ['ffmpeg', '-version'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # ffmpeg가 없으면 원본 파일을 그대로 사용
+            return False, None, "ffmpeg가 설치되어 있지 않아 Fast Start 처리를 건너뜁니다."
+        
+        # 임시 파일 생성
+        temp_dir = os.path.dirname(input_path) or '.'
+        temp_file = tempfile.NamedTemporaryFile(
+            suffix='.mp4',
+            dir=temp_dir,
+            delete=False
+        )
+        temp_file.close()
+        temp_path = temp_file.name
+        
+        try:
+            # ffmpeg로 Fast Start 적용 (리패키징만 수행, 재인코딩 없음)
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-c', 'copy',  # 코덱 복사 (재인코딩 없음)
+                '-movflags', '+faststart',  # Fast Start 적용
+                '-y',  # 덮어쓰기
+                temp_path
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            if result.returncode == 0 and os.path.exists(temp_path):
+                return True, temp_path, "Fast Start 처리가 완료되었습니다."
+            else:
+                error_msg = result.stderr[:200] if result.stderr else "알 수 없는 오류"
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                return False, None, f"Fast Start 처리 실패: {error_msg}"
+                
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            return False, None, f"Fast Start 처리 중 오류 발생: {str(e)}"
+    
+    @staticmethod
     def upload_file_to_presigned_url(
         upload_url: str,
         file_path: str,
@@ -312,12 +383,33 @@ class RepitAPIClient:
                 "stage": "request"
             }
         
-        # 2. S3 업로드
+        # 2. Fast Start 처리 (Chrome 스트리밍 호환성을 위해)
+        video_file_to_upload = video_path
+        temp_fast_start_file = None
+        fast_start_success, fast_start_path, fast_start_message = self.apply_fast_start_to_mp4(video_path)
+        
+        if fast_start_success and fast_start_path:
+            # Fast Start 처리된 파일 사용
+            video_file_to_upload = fast_start_path
+            temp_fast_start_file = fast_start_path
+            print(f"✓ {fast_start_message}")
+        elif not fast_start_success:
+            # Fast Start 실패해도 원본 파일로 업로드 진행 (경고만 출력)
+            print(f"⚠️  {fast_start_message} (원본 파일로 업로드합니다)")
+        
+        # 3. S3 업로드
         upload_success, upload_message = self.upload_file_to_presigned_url(
             upload_url=upload_url,
-            file_path=video_path,
+            file_path=video_file_to_upload,
             content_type=content_type
         )
+        
+        # 임시 파일 정리
+        if temp_fast_start_file and os.path.exists(temp_fast_start_file):
+            try:
+                os.unlink(temp_fast_start_file)
+            except Exception:
+                pass  # 정리 실패해도 계속 진행
         if not upload_success:
             return {
                 "success": False,
@@ -329,7 +421,7 @@ class RepitAPIClient:
                 "stage": "upload"
             }
         
-        # 3. 업로드 확정
+        # 4. 업로드 확정
         confirm_result = self.confirm_video_upload(record_id, object_key)
         if not confirm_result["success"]:
             return {
