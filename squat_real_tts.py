@@ -12,7 +12,7 @@ from collections import Counter as GradeCounter
 import json
 
 from analysis_postprocess import send_record_and_upload
-from video_utils import FrameRateController
+from video_utils import FrameRateController, create_browser_compatible_video_writer
 
 # PyInstaller 환경에서 MediaPipe 모델 경로 설정
 def get_mediapipe_path():
@@ -1082,7 +1082,6 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = target_fps
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     
     # output 디렉토리 가져오기 (사용자 쓰기 가능한 위치)
     output_dir = get_output_dir()
@@ -1093,7 +1092,12 @@ def run_squat_analysis(duration_seconds=120, stop_callback=None, frame_callback=
     output_video_path = os.path.join(output_dir, f"squat_realtime_tts_analysis_{timestamp}.mp4")
     output_report_path = os.path.join(output_dir, f"squat_realtime_tts_report_{timestamp}.txt")
     
-    out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
+    # 브라우저 호환 H.264 코덱으로 VideoWriter 생성
+    out = create_browser_compatible_video_writer(output_video_path, fps, frame_width, frame_height)
+    if out is None:
+        print("❌ VideoWriter 생성 실패")
+        cap.release()
+        return None, None, None, None, None
     frame_rate_controller = FrameRateController(target_fps)
     last_recorded_frame = None
     
