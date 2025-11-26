@@ -40,7 +40,7 @@ class FrameRateController:
 def create_browser_compatible_video_writer(output_path: str, fps: float, frame_width: int, frame_height: int):
     """
     브라우저 호환 H.264 코덱으로 VideoWriter 생성
-    H.264가 실패하면 mp4v로 폴백
+    h264 또는 x264 코덱을 시도하고, 실패하면 기본 코덱(mp4v)으로 폴백
     
     Args:
         output_path: 출력 비디오 파일 경로
@@ -51,34 +51,31 @@ def create_browser_compatible_video_writer(output_path: str, fps: float, frame_w
     Returns:
         VideoWriter 객체 또는 None (모두 실패 시)
     """
-    # 모든 플랫폼에서 h264를 1순위로 통일
-    h264_codecs = ['h264', 'H264', 'avc1', 'X264']
-    
-    # 먼저 H.264 코덱 시도
+    # h264 또는 x264 코덱 시도
+    h264_codecs = ['h264', 'x264']
     for codec_str in h264_codecs:
         try:
             fourcc = cv2.VideoWriter_fourcc(*codec_str)
             out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
             if out.isOpened():
-                print(f"[VideoWriter] H.264 코덱 '{codec_str}' 사용 성공")
+                print(f"[VideoWriter] {codec_str} 코덱 사용 성공")
                 return out
             else:
                 out.release()
         except Exception as e:
-            print(f"[VideoWriter] H.264 코덱 '{codec_str}' 시도 실패: {e}")
+            print(f"[VideoWriter] {codec_str} 코덱 시도 실패: {e}")
             continue
     
-    # H.264 실패 시 mp4v로 폴백
-    print("[VideoWriter] H.264 코덱 사용 불가 - mp4v로 폴백")
+    # h264/x264 실패 시 기본 코덱(mp4v)으로 폴백
     try:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
         if out.isOpened():
-            print("[VideoWriter] mp4v 코덱 사용 (나중에 ffmpeg로 H.264 변환 필요)")
+            print("[VideoWriter] 기본 코덱(mp4v) 사용")
             return out
         else:
             out.release()
     except Exception as e:
-        print(f"[VideoWriter] mp4v 코덱도 실패: {e}")
+        print(f"[VideoWriter] 기본 코덱(mp4v)도 실패: {e}")
     
     return None
