@@ -64,6 +64,7 @@ def run_pyinstaller(python_exe: str, name: str) -> Path:
         "--hidden-import=gtts",
         "--hidden-import=pydub",
         "--hidden-import=api_client",
+        "--hidden-import=video_utils",
         "--hidden-import=squat_real_tts",
         "--hidden-import=lunge_realtime",
         "--hidden-import=plank",

@@ -217,6 +217,7 @@ def build_macos_app(python_exe=None):
         "--hidden-import=gtts",
         "--hidden-import=pydub",
         "--hidden-import=api_client",
+        "--hidden-import=video_utils",
         "--hidden-import=squat_real_tts",
         "--hidden-import=lunge_realtime",
         "--hidden-import=plank",
