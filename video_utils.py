@@ -51,8 +51,8 @@ def create_browser_compatible_video_writer(output_path: str, fps: float, frame_w
     Returns:
         VideoWriter 객체 또는 None (모두 실패 시)
     """
-    # H.264 코덱 옵션들 (플랫폼별로 다를 수 있음)
-    h264_codecs = ['avc1', 'H264', 'h264', 'X264']
+    # 모든 플랫폼에서 h264를 1순위로 통일
+    h264_codecs = ['h264', 'H264', 'avc1', 'X264']
     
     # 먼저 H.264 코덱 시도
     for codec_str in h264_codecs:

@@ -30,6 +30,38 @@ def ensure_jetson() -> None:
         raise RuntimeError(f"Jetson 빌드는 Linux aarch64 환경에서만 지원됩니다. 현재: {system}/{machine}")
 
 
+def check_ffmpeg() -> bool:
+    """ffmpeg 설치 여부 확인 (H.264 비디오 인코딩에 필요)"""
+    try:
+        subprocess.check_call(
+            ["ffmpeg", "-version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def ensure_ffmpeg() -> None:
+    """ffmpeg가 설치되어 있지 않으면 경고 메시지 출력"""
+    if not check_ffmpeg():
+        print("⚠️  경고: ffmpeg가 설치되어 있지 않습니다.")
+        print("   H.264 비디오 인코딩을 위해 ffmpeg가 필요합니다.")
+        print("   설치 방법: sudo apt-get update && sudo apt-get install -y ffmpeg")
+        print("   계속 진행하시겠습니까? (Y/n): ", end="")
+        try:
+            response = input().strip().lower()
+            if response == "n":
+                print("❌ 빌드를 중단합니다.")
+                sys.exit(1)
+        except (EOFError, KeyboardInterrupt):
+            print("\n❌ 빌드를 중단합니다.")
+            sys.exit(1)
+    else:
+        print("✅ ffmpeg 설치 확인됨")
+
+
 def ensure_pyinstaller(python_exe: str) -> str:
     try:
         subprocess.check_call(
@@ -162,6 +194,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     ensure_jetson()
     args = parse_args()
+
+    # ffmpeg 설치 확인 (H.264 비디오 인코딩에 필요)
+    ensure_ffmpeg()
 
     python_exe = ensure_pyinstaller(sys.executable)
     built_dir = run_pyinstaller(python_exe, PYINSTALLER_NAME)
